@@ -5,6 +5,16 @@ Zapusk:  python "D:\\Local Cluster\\scripts\\asr-env.py"
 """
 import sys, os, shutil, subprocess
 
+# Katalohy CUDA-DLL treba dodaty DO importu ctranslate2/onnxruntime, inakshe
+# probe pokazhe CPU navit tam, de GPU naspravdi pracyuye.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    from cuda_dlls import add_nvidia_dlls
+    _DLLS = add_nvidia_dlls()
+except Exception as _e:
+    _DLLS = []
+    print("cuda_dlls unavailable:", _e)
+
 def line(k, v):
     print(f"{k:<24} {v}")
 
@@ -35,6 +45,9 @@ print()
 print("=" * 60)
 print("CUDA")
 print("=" * 60)
+line("nvidia dll dirs", len(_DLLS))
+for _d in _DLLS:
+    print(" " * 25 + _d)
 try:
     import ctranslate2 as ct
     line("ctranslate2 cuda devs", ct.get_cuda_device_count())

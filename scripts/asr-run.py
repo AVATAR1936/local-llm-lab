@@ -9,7 +9,10 @@ Zapusk:
     ... --only whisper-large-v3        (odna model)
     ... --audio "D:\\...\\inshe.wav"
 """
-import argparse, json, os, pathlib, platform, site, subprocess, sys, time
+import argparse, json, os, pathlib, subprocess, sys, time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from cuda_dlls import add_nvidia_dlls
 
 ROOT = pathlib.Path(r"D:\Local Cluster")
 OUT = ROOT / "out" / "asr"
@@ -25,35 +28,6 @@ MODELS = {
 
 def log(*a):
     print(*a, flush=True)
-
-
-def add_nvidia_dlls():
-    """CTranslate2 i onnxruntime-gpu shukayut cuBLAS/cuDNN sered DLL katalohiv.
-
-    Pip-paketi nvidia-* kladut ci DLL u site-packages/nvidia/*/bin, ale Windows
-    tam ne shukaye. Dodayemo yikh yavno - ce zaminyuye redahuvannya PATH.
-    """
-    if platform.system() != "Windows":
-        return []
-    added = []
-    roots = list(site.getsitepackages())
-    try:
-        roots.append(site.getusersitepackages())
-    except Exception:
-        pass
-    for p in roots:
-        nv = pathlib.Path(p) / "nvidia"
-        if not nv.is_dir():
-            continue
-        for sub in sorted(nv.iterdir()):
-            b = sub / "bin"
-            if b.is_dir():
-                try:
-                    os.add_dll_directory(str(b))
-                    added.append(str(b))
-                except Exception as e:
-                    log(f"  ! add_dll_directory failed for {b}: {e}")
-    return added
 
 
 def gpu_state(tag):

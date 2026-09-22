@@ -76,17 +76,24 @@ Write-Host "== upgrading pip ==" -ForegroundColor Cyan
 & $Py -m pip install --upgrade pip --quiet
 
 Write-Host "== installing packages ==" -ForegroundColor Cyan
-# faster-whisper  - Whisper на CTranslate2, обидва наші кандидати з цього сімейства
-# onnx-asr[gpu]   - Parakeet TDT 0.6b v3 через onnxruntime-gpu, без важкого NeMo
-# onnx-asr[hub]   - завантаження ваг з HuggingFace
-# jiwer           - рахує WER і CER, коли дійдемо до еталона
-# nvidia-*        - cuBLAS і cuDNN 9 для CUDA 12; саме їх шукає CTranslate2 на Windows
-& $Py -m pip install `
-    "faster-whisper" `
-    "onnx-asr[gpu,hub]" `
-    "jiwer" `
-    "nvidia-cublas-cu12" `
-    "nvidia-cudnn-cu12"
+# faster-whisper     - Whisper на CTranslate2, обидва кандидати з цього сімейства
+# onnx-asr[hub]      - Parakeet TDT 0.6b v3, завантаження ваг з HuggingFace
+# jiwer              - рахує WER і CER, коли дійдемо до еталона
+# nvidia-cublas-cu12 - cuBLAS для CTranslate2
+& $Py -m pip install "faster-whisper" "onnx-asr[hub]" "jiwer" "nvidia-cublas-cu12"
+
+Write-Host "== fixing onnxruntime ==" -ForegroundColor Cyan
+# onnxruntime і onnxruntime-gpu - це один і той самий модуль python під двома
+# іменами пакета. Коли стоять обидва, перемагає той, чиї файли лягли останніми,
+# і розпізнавання мовчки йде на процесорі. faster-whisper тягне процесорний
+# варіант у залежностях, тому знімаємо обидва й ставимо тільки GPU.
+#
+# Версія прибита навмисно. З 1.27 onnxruntime-gpu зібраний під CUDA 13, а
+# CTranslate2 4.8 працює з CUDA 12; дві мажорні версії CUDA в одному
+# середовищі не уживаються. 1.24.4 - найновіша під CUDA 12, яка при цьому не
+# потрапляє в чорний список onnx-asr (той виключає 1.24.1, 1.25.*, 1.26.0).
+& $Py -m pip uninstall -y onnxruntime onnxruntime-gpu
+& $Py -m pip install "onnxruntime-gpu[cuda,cudnn]==1.24.4"
 
 Write-Host "== result ==" -ForegroundColor Cyan
 & $Py "$Root\scripts\asr-env.py"
