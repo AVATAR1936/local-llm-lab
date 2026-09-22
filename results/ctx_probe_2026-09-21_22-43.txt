@@ -1,0 +1,21 @@
+﻿=== context probe: 2026-09-21_22-43 ===
+sysmem fallback must be DISABLED for these numbers to mean anything
+
+qwen3.5:9b @   8192 -> ok   100% GPU         gpu 8854 MB (idle 2268) 65,2 tok/s 
+qwen3.5:9b @  16384 -> ok   100% GPU         gpu 9262 MB (idle 2206) 64,6 tok/s 
+qwen3.5:9b @  32768 -> ok   100% GPU         gpu 9723 MB (idle 2252) 65,7 tok/s 
+qwen3.5:9b @  65536 -> ok   100% GPU         gpu 10642 MB (idle 2251) 65 tok/s 
+qwen3.5:9b @ 131072 -> ok   100% GPU         gpu 11818 MB (idle 2244) 54,8 tok/s 
+
+gemma4:12b @   8192 -> ok   100% GPU         gpu 9931 MB (idle 1458) 49,4 tok/s 
+gemma4:12b @  16384 -> ok   100% GPU         gpu 10082 MB (idle 1367) 50,3 tok/s 
+gemma4:12b @  32768 -> ok   100% GPU         gpu 10048 MB (idle 1367) 50,1 tok/s 
+gemma4:12b @  65536 -> ok   100% GPU         gpu 10592 MB (idle 1361) 50,3 tok/s 
+gemma4:12b @ 131072 -> ok   100% GPU         gpu 11680 MB (idle 1361) 50,2 tok/s 
+
+uamarchuan/lapa-v0.1.2-instruct:Q4_K_M @   8192 -> ok   100% GPU         gpu 9604 MB (idle 1361) 51,4 tok/s 
+uamarchuan/lapa-v0.1.2-instruct:Q4_K_M @  16384 -> ok   100% GPU         gpu 10124 MB (idle 1361) 51,4 tok/s 
+uamarchuan/lapa-v0.1.2-instruct:Q4_K_M @  32768 -> ok   100% GPU         gpu 11164 MB (idle 1361) 51,6 tok/s 
+uamarchuan/lapa-v0.1.2-instruct:Q4_K_M @  65536 -> ok   27%/73% CPU/GPU  gpu 11574 MB (idle 1361) 19 tok/s 
+  stop climbing for uamarchuan/lapa-v0.1.2-instruct:Q4_K_M: spilled to CPU
+

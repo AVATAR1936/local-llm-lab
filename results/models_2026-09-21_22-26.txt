@@ -1,0 +1,89 @@
+﻿=== round-1 candidate models: 2026-09-21_22-26 ===
+OLLAMA_MODELS = D:\Local Cluster\ollama-models
+ollama client = ollama version is 0.34.2
+
+--- qwen3.5:9b ---
+pull: OK in 92.5 s
+Model
+    architecture        qwen35    
+    parameters          9.7B      
+    context length      262144    
+    embedding length    4096      
+    quantization        Q4_K_M    
+    requires            0.17.1    
+
+  Capabilities
+    completion    
+    vision        
+    tools         
+    thinking      
+
+  Parameters
+    top_k               20      
+    top_p               0.95    
+    presence_penalty    1.5     
+    temperature         1       
+
+  License
+    Apache License               
+    Version 2.0, January 2004    
+    ...
+
+--- gemma4:12b ---
+pull: OK in 105.5 s
+Model
+    architecture        gemma4    
+    parameters          11.9B     
+    context length      262144    
+    embedding length    3840      
+    quantization        Q4_K_M    
+    requires            0.30.5    
+
+  Capabilities
+    completion    
+    vision        
+    audio         
+    tools         
+    thinking      
+
+  Projector
+    architecture        clip      
+    parameters          52.38M    
+    embedding length    3840      
+    dimensions          3840      
+
+  Parameters
+    temperature    1       
+    top_k          64      
+    top_p          0.95    
+
+  License
+    Apache License               
+    Version 2.0, January 2004    
+    ...
+
+--- uamarchuan/lapa-v0.1.2-instruct:Q4_K_M ---
+pull: OK in 118 s
+Model
+    architecture        gemma3    
+    parameters          11.8B     
+    context length      131072    
+    embedding length    3840      
+    quantization        Q4_K_M    
+
+  Capabilities
+    completion    
+
+  Parameters
+    top_k    64                 
+    top_p    0.95               
+    stop     "<end_of_turn>"
+
+--- ollama list ---
+NAME                                      ID              SIZE      MODIFIED               
+uamarchuan/lapa-v0.1.2-instruct:Q4_K_M    c5e280183148    7.3 GB    Less than a second ago    
+gemma4:12b                                4eb23ef187e2    7.6 GB    About a minute ago        
+qwen3.5:9b                                6488c96fa5fa    6.6 GB    3 minutes ago
+
+--- disk D after pull ---
+D: free 274,3 GB

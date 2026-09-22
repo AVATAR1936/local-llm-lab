@@ -1,0 +1,37 @@
+﻿=== Local Cluster environment snapshot: 2026-09-21_18-03 ===
+
+--- OLLAMA_MODELS variable ---
+process: D:\Local Cluster\ollama-models
+user   : D:\Local Cluster\ollama-models
+machine: 
+
+--- other OLLAMA_* variables ---
+OLLAMA_FLASH_ATTENTION = 1
+OLLAMA_MAX_LOADED_MODELS = 1
+OLLAMA_MODELS = D:\Local Cluster\ollama-models
+
+--- looking for model storage ---
+FOUND  C:\Users\<user>\.ollama\models  (0 GB)
+absent D:\ollama\models
+absent D:\.ollama\models
+absent D:\Ollama\models
+
+--- any *ollama* folder on D ---
+(none in root of D)
+
+--- ollama ---
+client: ollama version is 0.34.2
+NAME    ID    SIZE    MODIFIED
+
+--- disk space ---
+C: free 29,2 GB, used 416,6 GB
+D: free 243,6 GB, used 710,3 GB
+
+--- GPU (idle baseline) ---
+name, driver_version, memory.total [MiB], memory.used [MiB]
+NVIDIA GeForce RTX 4070, 610.88, 12282 MiB, 2102 MiB
+
+--- runtimes ---
+docker: Docker version 29.8.0, build 88096ef
+git   : git version 2.53.0.windows.1
+python: Python 3.13.14

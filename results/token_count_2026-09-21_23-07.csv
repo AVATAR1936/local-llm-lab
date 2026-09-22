@@ -1,0 +1,7 @@
+﻿"file","chars","model","status","prompt_tokens","chars_per_token","pct_of_32k","error"
+"lecture_short_16min.txt","12032","qwen3.5:9b","ok","4241","2,84","12,9",""
+"lecture_short_16min.txt","12032","gemma4:12b","ok","3976","3,03","12,1",""
+"lecture_short_16min.txt","12032","uamarchuan/lapa-v0.1.2-instruct:Q4_K_M","ok","3133","3,84","9,6",""
+"lecture_long_65min.txt","44605","qwen3.5:9b","ok","15626","2,85","47,7",""
+"lecture_long_65min.txt","44605","gemma4:12b","ok","14484","3,08","44,2",""
+"lecture_long_65min.txt","44605","uamarchuan/lapa-v0.1.2-instruct:Q4_K_M","ok","11296","3,95","34,5",""

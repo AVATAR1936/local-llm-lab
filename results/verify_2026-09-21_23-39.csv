@@ -1,0 +1,13 @@
+﻿"task","file","temperature","seed","status","out_tokens","gen_tok_s","gpu_idle_mb","gpu_peak_mb","out_file","error"
+"protocol","short_16min","0,2","42","ok","522","47,5","1270","9956","protocol__t0,2__s42__short_16min.md",
+"protocol","short_16min","0,2","1234","ok","592","47,5","1263","9962","protocol__t0,2__s1234__short_16min.md",
+"protocol","short_16min","1","42","ok","627","47,8","1267","9962","protocol__t1__s42__short_16min.md",
+"protocol","short_16min","1","1234","ok","523","47,7","1267","9962","protocol__t1__s1234__short_16min.md",
+"refusal","short_16min","0,2","42","ok","8","45,6","","","refusal__t0,2__short_16min.md",
+"refusal","short_16min","1","42","ok","8","45,2","","","refusal__t1__short_16min.md",
+"protocol","long_65min","0,2","42","ok","938","46,8","1266","9961","protocol__t0,2__s42__long_65min.md",
+"protocol","long_65min","0,2","1234","ok","773","46,8","1266","9959","protocol__t0,2__s1234__long_65min.md",
+"protocol","long_65min","1","42","ok","1039","46,7","1264","9959","protocol__t1__s42__long_65min.md",
+"protocol","long_65min","1","1234","ok","700","46,8","1264","9959","protocol__t1__s1234__long_65min.md",
+"refusal","long_65min","0,2","42","ok","8","44,4","","","refusal__t0,2__long_65min.md",
+"refusal","long_65min","1","42","ok","8","44,2","","","refusal__t1__long_65min.md",

@@ -1,0 +1,7 @@
+﻿"file","chars","model","status","prompt_tokens","chars_per_token","pct_of_32k","processor","prompt_tok_s","error"
+"lecture_short_16min.txt","12032","qwen3.5:9b","FAIL","","","","n/a","","Удаленный сервер возвратил ошибку: (400) Недопустимый запрос."
+"lecture_short_16min.txt","12032","gemma4:12b","FAIL","","","","n/a","","Удаленный сервер возвратил ошибку: (400) Недопустимый запрос."
+"lecture_short_16min.txt","12032","uamarchuan/lapa-v0.1.2-instruct:Q4_K_M","FAIL","","","","n/a","","Удаленный сервер возвратил ошибку: (400) Недопустимый запрос."
+"lecture_long_65min.txt","44605","qwen3.5:9b","FAIL","","","","n/a","","Удаленный сервер возвратил ошибку: (400) Недопустимый запрос."
+"lecture_long_65min.txt","44605","gemma4:12b","FAIL","","","","n/a","","Удаленный сервер возвратил ошибку: (400) Недопустимый запрос."
+"lecture_long_65min.txt","44605","uamarchuan/lapa-v0.1.2-instruct:Q4_K_M","FAIL","","","","n/a","","Удаленный сервер возвратил ошибку: (400) Недопустимый запрос."
