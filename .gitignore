@@ -17,3 +17,6 @@ Claude outputs/
 *.tmp
 Thumbs.db
 desktop.ini
+
+# Аудіо лекцій: ті самі імена, тільки голосом
+data/audio/
