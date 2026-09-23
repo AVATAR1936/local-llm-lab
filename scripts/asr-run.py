@@ -52,7 +52,9 @@ def field(obj, *names):
     return None
 
 
-def run_faster_whisper(model_id, audio):
+def run_faster_whisper(model_id, audio, prompt=None, hotwords=None,
+                       fallback=False, vad=False, seed=0):
+    import ctranslate2
     from faster_whisper import WhisperModel
     log(f"  loading {model_id} (cuda, float16)")
     t0 = time.perf_counter()
@@ -62,13 +64,21 @@ def run_faster_whisper(model_id, audio):
     # Явно фіксуємо все, що впливає на вихід, щоб прогін був відтворюваним:
     #   language="uk"        - без автовизначення мови, інакше це лотерея
     #   beam_size=5          - типове значення, однакове для обох варіантів
-    #   vad_filter=False     - Whisper ріже сам, своїм вікном на 30 секунд
     #   word_timestamps=True - потрібні для вирівнювання з іншими моделями
-    #   temperature=0.0      - без відкатів на вищу температуру
+    # Два перемикачі, обидва за замовчуванням вимкнені, як у першому прогоні:
+    #   fallback - штатний відкат температури 0.0..1.0: вікно, що повторює
+    #              само себе (стиснення > 2.4), розпізнається заново. Без
+    #              нього large-v3 з будь-якою підказкою петляє з 90.7 с.
+    #              Відкат семплює, тому зерно CTranslate2 фіксуємо.
+    #   vad      - Silero ріже тишу до Whisper: на тиші він дописує
+    #              «Дякую за перегляд!» з субтитрів YouTube.
+    ctranslate2.set_random_seed(seed)
+    temperature = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0] if fallback else 0.0
     t0 = time.perf_counter()
     segments, info = m.transcribe(
-        str(audio), language="uk", beam_size=5, vad_filter=False,
-        word_timestamps=True, temperature=0.0, condition_on_previous_text=True)
+        str(audio), language="uk", beam_size=5, vad_filter=vad,
+        word_timestamps=True, temperature=temperature, condition_on_previous_text=True,
+        initial_prompt=prompt, hotwords=hotwords)
     segs = []
     for s in segments:  # генератор: робота йде тут, не у виклику вище
         # Поступ по сегментах: без цього між loading і done тиша на всю
@@ -84,7 +94,8 @@ def run_faster_whisper(model_id, audio):
         })
     t_run = time.perf_counter() - t0
     meta = {"language": info.language, "language_probability": info.language_probability,
-            "duration": info.duration}
+            "duration": info.duration, "initial_prompt": prompt, "hotwords": hotwords,
+            "temperature": temperature, "vad_filter": vad, "seed": seed}
     return segs, t_load, t_run, meta
 
 
@@ -153,6 +164,17 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--audio", default=str(ROOT / "data" / "audio" / "lecture_2026-09-16.wav"))
     ap.add_argument("--only", default=None, help="run a single model by name")
+    # Підказка стилю (див. план, «правило замість словника»). Parakeet
+    # підказок не приймає, тому з --prompt ідуть лише моделі Whisper, а
+    # виводи отримують суфікс +prompt і не затирають прогін без підказки.
+    ap.add_argument("--prompt", default=None, help="initial_prompt for Whisper models")
+    # initial_prompt витісняється власним текстом моделі приблизно за хвилину
+    # мовлення; hotwords faster-whisper вставляє в підказку кожного вікна.
+    ap.add_argument("--hotwords", default=None, help="hotwords for Whisper models")
+    ap.add_argument("--fallback", action="store_true", help="temperature fallback 0.0..1.0")
+    ap.add_argument("--vad", action="store_true", help="Silero VAD before Whisper")
+    ap.add_argument("--seed", type=int, default=0, help="CTranslate2 random seed")
+    ap.add_argument("--tag", default="", help="extra suffix for output names (e.g. repeat runs)")
     args = ap.parse_args()
 
     audio = pathlib.Path(args.audio)
@@ -164,6 +186,8 @@ def main():
         log("  " + d)
 
     names = [args.only] if args.only else list(MODELS)
+    if args.prompt or args.hotwords or args.fallback or args.vad:
+        names = [n for n in names if MODELS.get(n, ("",))[0] == "faster-whisper"]
     summary = []
     for name in names:
         if name not in MODELS:
@@ -174,7 +198,8 @@ def main():
         t_wall = time.perf_counter()
         try:
             if kind == "faster-whisper":
-                segs, tl, tr, meta = run_faster_whisper(model_id, audio)
+                segs, tl, tr, meta = run_faster_whisper(
+                    model_id, audio, args.prompt, args.hotwords, args.fallback, args.vad, args.seed)
             else:
                 segs, tl, tr, meta = run_onnx_asr(model_id, audio)
         except Exception as e:
@@ -182,7 +207,9 @@ def main():
             summary.append((name, "FAILED", f"{type(e).__name__}: {e}"))
             continue
         after = gpu_state("after")
-        words = write_outputs(name, model_id, audio, segs, tl, tr, meta, before, after)
+        out_name = (name + ("+prompt" if args.prompt else "") + ("+hot" if args.hotwords else "")
+                    + ("+fb" if args.fallback else "") + ("+vad" if args.vad else "") + args.tag)
+        words = write_outputs(out_name, model_id, audio, segs, tl, tr, meta, before, after)
         summary.append((name, f"{time.perf_counter() - t_wall:.1f}s",
                         f"{len(segs)} seg / {words} words"))
 
