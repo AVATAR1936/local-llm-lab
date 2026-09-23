@@ -1,0 +1,11 @@
+voice,config,wer,substitutions,deletions,insertions,ref_words,note
+large-v3,fallback+vad,0.1363,81,29,138,1819,pivot of the alignment
+turbo,fallback+vad,0.1534,108,31,140,1819,almost no punctuation (92 marks vs 757)
+parakeet-tdt-0.6b-v3,vad (onnx-asr),0.2117,153,31,201,1819,
+gemini,audio upload,0.1297,75,42,119,1819,not a candidate; edited transcript
+# reference: unanimous words + 3:1 majority + 100 regions resolved by ear; 7 crosstalk/unanswered regions (26 positions) excluded for all voices
+# terms collapsed to one token per term (spelling measured separately); hyphen split; unambiguous fillers and immediate repeats removed
+# paired block bootstrap (48 blocks x 40 positions, 10000 resamples):
+# turbo-large 95% CI [-0.96%, +4.00%] (large better in 89.6%): not significant
+# parakeet-large 95% CI [+5.14%, +10.65%]; parakeet-turbo 95% CI [+3.77%, +8.77%]
+# blind 0:00-1:30 (134 words) vs consensus reference: 23.9% - mostly the blind transcript paraphrasing and the crosstalk stretch; not a clean shared-error estimate
