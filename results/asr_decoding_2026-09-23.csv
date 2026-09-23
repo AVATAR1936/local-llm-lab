@@ -1,0 +1,15 @@
+model,config,words,extra_spellings,transcribe_s,repeat_loop,silence_hallucination,note
+large-v3,base (T=0 no fallback; no VAD),2026,6,85.1,no,no,
+large-v3,+initial_prompt,813,,109.9,"Дякую. x679 from 90.7 s",no,14.5 min of lecture lost
+large-v3,+hotwords,819,,110.6,"Дякую. x685 from 90.7 s",no,same loop point as initial_prompt
+large-v3,+fallback,2026,6,85.7,no,no,text byte-identical to base: fallback never fired
+large-v3,+fallback+vad,2023,6,92.1,no,no,repeat run text byte-identical (seed 0)
+large-v3,+hotwords+fallback,2058,10,97.2,no,no,loop gone
+large-v3,+hotwords+fallback+vad,2089,7,92.2,no,no,
+turbo,base (T=0 no fallback; no VAD),2059,6,20.4,no,no,no punctuation or case
+turbo,+initial_prompt,2082,8,30.3,no,"Дякую за перегляд! x10",punctuation back
+turbo,+hotwords,2087,7,29.8,no,"Побачимось за два тижні. x5",
+turbo,+fallback,2057,7,21.7,no,no,
+turbo,+fallback+vad,2039,7,29.0,no,no,repeat run text byte-identical (seed 0)
+turbo,+hotwords+fallback,2087,7,28.3,no,"Побачимось за два тижні. x5",
+turbo,+hotwords+fallback+vad,2053,5,25.5,no,no,

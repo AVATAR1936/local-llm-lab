@@ -14,8 +14,9 @@ import argparse, collections, pathlib, re
 
 ROOT = pathlib.Path(r"D:\Local Cluster")
 SOURCES = {
-    "large": ROOT / "out" / "asr" / "whisper-large-v3.txt",
-    "turbo": ROOT / "out" / "asr" / "whisper-large-v3-turbo.txt",
+    # Стійка конфігурація Whisper: відкат температури + VAD (див. план).
+    "large": ROOT / "out" / "asr" / "whisper-large-v3+fb+vad.txt",
+    "turbo": ROOT / "out" / "asr" / "whisper-large-v3-turbo+fb+vad.txt",
     "parakeet": ROOT / "out" / "asr" / "parakeet-tdt-0.6b-v3.txt",
     "gemini": ROOT / "data" / "transcripts" / "gemini_2026-09-16.txt",
 }
