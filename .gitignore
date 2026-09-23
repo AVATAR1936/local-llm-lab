@@ -9,7 +9,6 @@ data/transcripts/
 out/
 
 # Архіви попереднього, розвідувального проєкту
-Claude outputs/
 *.rar
 *.tar.gz
 
