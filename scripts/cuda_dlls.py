@@ -33,6 +33,10 @@ def add_nvidia_dlls(verbose=False):
             if b.is_dir():
                 try:
                     os.add_dll_directory(str(b))
+                    # add_dll_directory bachyt lyshe LoadLibraryEx z praporamy
+                    # poshuku. CTranslate2 vantazhyt cuBLAS linyvo, zvychajnym
+                    # LoadLibrary, a toj shukaye po PATH - tomu i tudy.
+                    os.environ["PATH"] = str(b) + os.pathsep + os.environ.get("PATH", "")
                     added.append(str(b))
                 except Exception as e:
                     if verbose:

@@ -71,6 +71,10 @@ def run_faster_whisper(model_id, audio):
         word_timestamps=True, temperature=0.0, condition_on_previous_text=True)
     segs = []
     for s in segments:  # генератор: робота йде тут, не у виклику вище
+        # Поступ по сегментах: без цього між loading і done тиша на всю
+        # розшифровку, і зависання не відрізнити від роботи. Початок тексту
+        # показує і петлю повторів. Лог читати як UTF-8, не з консолі 5.1.
+        log(f"    [{hms(s.start)}] #{len(segs) + 1} {(s.text or '').strip()[:50]}")
         segs.append({
             "start": round(s.start, 3),
             "end": round(s.end, 3),
@@ -95,17 +99,19 @@ def run_onnx_asr(model_id, audio):
 
     # Parakeet не тримає годину цілком у цій збірці, тому довге аудіо ріжеться
     # силеро-VAD по паузах. Це відмінність від Whisper, і вона піде в журнал.
+    # language і pnc не передаємо: onnx-asr читає їх лише для Canary, Parakeet
+    # їх мовчки ігнорує, мову визначає сам, пунктуацію ставить завжди.
+    # recognize() повертає генератор, тому list() — всередині заміру часу.
     t0 = time.perf_counter()
-    res = model.with_vad(vad).recognize(str(audio), language="uk", pnc=True)
+    items = list(model.with_vad(vad).recognize(str(audio)))
     t_run = time.perf_counter() - t0
 
     segs = []
-    items = res if isinstance(res, (list, tuple)) else [res]
     for s in items:
         segs.append({
-            "start": round(float(field(s, "start", "start_time") or 0.0), 3),
-            "end": round(float(field(s, "end", "end_time") or 0.0), 3),
-            "text": str(field(s, "text") or "").strip(),
+            "start": round(float(s.start), 3),
+            "end": round(float(s.end), 3),
+            "text": (s.text or "").strip(),
             "words": [],
         })
     return segs, t_load, t_run, {"provider": "CUDAExecutionProvider"}
