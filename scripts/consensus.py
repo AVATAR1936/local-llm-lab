@@ -110,18 +110,13 @@ def align(pivot, other):
     return slot, sm.ratio()
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--large", required=True, help="output name of large-v3 run (pivot)")
-    ap.add_argument("--turbo", required=True, help="output name of turbo run")
-    ap.add_argument("--parakeet", default="parakeet-tdt-0.6b-v3")
-    ap.add_argument("--gap", type=float, default=2.0, help="merge regions closer than N s")
-    args = ap.parse_args()
-
-    pivot, times = load_whisper(args.large)
+def compute(large, turbo, parakeet="parakeet-tdt-0.6b-v3", gap=2.0):
+    """Vyrivnyuvannya i dilyanky - okremo vid druku, shchob wer.py buduvav
+    ti sami dilyanky, shcho bachyv slukhach."""
+    pivot, times = load_whisper(large)
     voices = {
-        "turbo": load_text(ASR / f"{args.turbo}.txt"),
-        "parakeet": load_text(ASR / f"{args.parakeet}.txt"),
+        "turbo": load_text(ASR / f"{turbo}.txt"),
+        "parakeet": load_text(ASR / f"{parakeet}.txt"),
         "gemini": load_text(GEMINI, gemini=True),
     }
     slots, ratios = {}, {}
@@ -132,6 +127,7 @@ def main():
     names = ["large"] + list(voices)
     odd_one = collections.Counter()
     disputed, to_listen = [], []
+    majority = {}  # pozyciya 3:1 -> slova bilshosti
     kinds = collections.Counter()
     for i, w in enumerate(pivot):
         said = {"large": [w]}
@@ -148,6 +144,7 @@ def main():
             # Корельованість сімейства тут не шкодить: у будь-якій трійці є
             # хоча б один голос не-Whisper, бо Whisper-ів лише два.
             kinds["3:1"] += 1
+            majority[i] = cnt.most_common(1)[0][0].split()
             for n in names:
                 if cnt[keyed[n]] == 1:
                     odd_one[n] += 1
@@ -158,10 +155,30 @@ def main():
     # Склеюємо сусідні позиції «слухати» в ділянки для прослуховування.
     regions = []
     for i in to_listen:
-        if regions and times[i] - times[regions[-1][-1]] <= args.gap:
+        if regions and times[i] - times[regions[-1][-1]] <= gap:
             regions[-1].append(i)
         else:
             regions.append([i])
+
+    return dict(pivot=pivot, times=times, slots=slots, ratios=ratios, names=names,
+                voices=voices, disputed=disputed, to_listen=to_listen, kinds=kinds,
+                majority=majority, odd_one=odd_one, regions=regions)
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--large", required=True, help="output name of large-v3 run (pivot)")
+    ap.add_argument("--turbo", required=True, help="output name of turbo run")
+    ap.add_argument("--parakeet", default="parakeet-tdt-0.6b-v3")
+    ap.add_argument("--gap", type=float, default=2.0, help="merge regions closer than N s")
+    ap.add_argument("--force", action="store_true", help="overwrite disputes.txt even if it has answers")
+    args = ap.parse_args()
+
+    c = compute(args.large, args.turbo, args.parakeet, args.gap)
+    pivot, times, slots, ratios, names, voices = (c[k] for k in
+        ("pivot", "times", "slots", "ratios", "names", "voices"))
+    disputed, to_listen, kinds, odd_one, regions = (c[k] for k in
+        ("disputed", "to_listen", "kinds", "odd_one", "regions"))
 
     def span(ids, n):
         if n == "large":
@@ -169,6 +186,14 @@ def main():
         return " ".join(" ".join(slots[n][j]) or "·" for j in ids)
 
     OUT.mkdir(parents=True, exist_ok=True)
+    # U disputes.txt slukhach vpysuye vidpovidi - ne zatyraty yikh movchky.
+    target = OUT / "disputes.txt"
+    if target.exists() and not args.force:
+        body = target.read_text(encoding="utf-8").splitlines()
+        answered = any(l.strip() and not l.startswith(("#", "  large", "  turbo", "  parakeet", "  gemini"))
+                       for l in body)
+        if answered:
+            raise SystemExit(f"{target} has answers written into it; use --force to overwrite")
     lines = [f"# Rozbizhnosti: opornyj {args.large}, turbo {args.turbo}",
              f"# pozycij: {len(pivot)}, spirnykh: {len(disputed)}, slukhaty: {len(to_listen)}, "
              f"dilyanok: {len(regions)}",
