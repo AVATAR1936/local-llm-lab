@@ -56,11 +56,20 @@ class HypothesisBuffer:
 
 
 class OnlineASRProcessor:
-    def __init__(self, transcribe, trim_sec=15.0, use_prompt=True):
-        """transcribe(audio, prompt) -> (words [(beg, end, text)], segment_ends)."""
+    def __init__(self, transcribe, trim_sec=15.0, use_prompt=True, max_sec=0.0, keep_sec=5.0):
+        """transcribe(audio, prompt) -> (words [(beg, end, text)], segment_ends).
+
+        max_sec - zapobizhnyk: bufer, dovshyj za ce, rizhet'sya prymusovo.
+        Bez n'oho bezperervne movlennya roste bufer bez mezhi, a kozhen cykl
+        rozpiznaye ves' bufer zanovo - cykl rosne razom z nym.
+        """
         self.transcribe = transcribe
         self.trim_sec = trim_sec
         self.use_prompt = use_prompt
+        self.max_sec = max_sec
+        self.keep_sec = keep_sec
+        self.seams = 0        # різів по живому: скільки разів різали непідтверджене
+        self.forced = 0       # усіх примусових різів
         self.audio = np.zeros(0, dtype=np.float32)
         self.hyp = HypothesisBuffer()
         self.offset = 0.0
@@ -93,6 +102,8 @@ class OnlineASRProcessor:
         self.commited.extend(o)
         if len(self.audio) / SR > self.trim_sec:
             self._trim(seg_ends)
+        if self.max_sec and len(self.audio) / SR > self.max_sec:
+            self._force_trim()
         return o
 
     def draft(self):
@@ -113,6 +124,30 @@ class OnlineASRProcessor:
             self.hyp.pop_commited(e)
             self.audio = self.audio[int((e - self.offset) * SR):]
             self.offset = e
+
+    def _force_trim(self):
+        """Ріжемо, коли звичайна обрізка не спрацювала: кінця сегмента немає.
+
+        Точка різу — кінець останнього підтвердженого слова. Якщо в буфері
+        підтвердженого немає зовсім, ріжемо по живому, лишаючи keep_sec
+        хвоста, і рахуємо це швом: саме тут губляться слова.
+        """
+        t_end = self.offset + len(self.audio) / SR
+        t_conf = self.commited[-1][1] if self.commited else 0.0
+        cut = t_conf if t_conf > self.offset else t_end - self.keep_sec
+        if t_conf <= self.offset:
+            self.seams += 1
+        cut = min(cut, t_end - self.keep_sec)
+        if cut <= self.offset:
+            return
+        # Гіпотези, що лишилися в зрізаному, більше не збігатимуться ні з чим:
+        # без прибирання вони назавжди блокують підтвердження.
+        self.hyp.buffer = [w for w in self.hyp.buffer if w[1] > cut]
+        self.hyp.last_commited_time = max(self.hyp.last_commited_time, cut)
+        self.hyp.pop_commited(cut)
+        self.audio = self.audio[int((cut - self.offset) * SR):]
+        self.offset = cut
+        self.forced += 1
 
     def finish(self):
         o = self.hyp.buffer

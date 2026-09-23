@@ -94,6 +94,7 @@ def main():
     ap.add_argument("--model", choices=list(MODELS), default="turbo")
     ap.add_argument("--chunk", type=float, default=1.0, help="min new audio per cycle, s")
     ap.add_argument("--trim", type=float, default=15.0, help="trim audio buffer longer than N s")
+    ap.add_argument("--max", type=float, default=0.0, dest="max_sec", help="hard cap on buffer, s")
     ap.add_argument("--no-prompt", action="store_true", help="do not pass committed text as initial_prompt")
     ap.add_argument("--no-vad", action="store_true")
     ap.add_argument("--seed", type=int, default=0)
@@ -101,7 +102,7 @@ def main():
     ap.add_argument("--score-only", action="store_true", help="skip the run, score existing output")
     args = ap.parse_args()
 
-    name = f"live-{args.model}-c{args.chunk:g}" + ("-noprompt" if args.no_prompt else "") \
+    name = f"live-{args.model}-c{args.chunk:g}" + (f"-max{args.max_sec:g}" if args.max_sec else "") + ("-noprompt" if args.no_prompt else "") \
         + ("-novad" if args.no_vad else "") + args.tag
     txt, js = OUT / f"{name}.txt", OUT / f"{name}.json"
     control = {"turbo": "whisper-large-v3-turbo+fb+vad", "large": "whisper-large-v3+fb+vad"}[args.model]
@@ -116,7 +117,7 @@ def main():
         audio = load_wav(AUDIO)
         dur = len(audio) / SR
         proc = OnlineASRProcessor(make_transcribe(model, not args.no_vad),
-                                  trim_sec=args.trim, use_prompt=not args.no_prompt)
+                                  trim_sec=args.trim, use_prompt=not args.no_prompt, max_sec=args.max_sec)
 
         words, cycles, max_lag = [], [], 0.0
         now, pos = 0.0, 0
@@ -145,7 +146,7 @@ def main():
 
         lat = sorted(w["at"] - w["end"] for w in words)
         stats = {
-            "model": MODELS[args.model], "chunk": args.chunk, "trim": args.trim,
+            "model": MODELS[args.model], "chunk": args.chunk, "trim": args.trim, "max_sec": args.max_sec,
             "prompt": not args.no_prompt, "vad": not args.no_vad, "seed": args.seed,
             "audio_s": round(dur, 1), "wall_s": round(wall, 1), "cycles": len(cycles),
             "cycle_median_s": round(statistics.median(cycles), 2),
@@ -155,6 +156,7 @@ def main():
             "latency_p90_s": round(lat[int(len(lat) * 0.9)], 2),
             "latency_max_s": round(lat[-1], 2),
             "longest_repeat": longest_run(w["word"] for w in words),
+            "forced_trims": proc.forced, "seams": proc.seams,
         }
         txt.write_text("".join(w["word"] for w in words).strip() + "\n", encoding="utf-8")
         js.write_text(json.dumps({"stats": stats, "words": words}, ensure_ascii=False, indent=1), encoding="utf-8")
