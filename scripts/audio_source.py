@@ -3,8 +3,7 @@
 
 Nazovni viddaye blokamy float32 16 kHz mono i nomer pershoho semplu - tobto
 stricha, na yakij mozhna stavyty taimkody. Vsi dzherela (loopback procesu,
-mikrofon, fajl dlya symulyaciyi) mayut' odyn i toj samyj vyhlyad, tomu sluzhba
-yikh ne rozriznyaye.
+mikrofon) mayut' odyn i toj samyj vyhlyad, tomu sluzhba yikh ne rozriznyaye.
 
 Zapys na dysk vedet'sya potokom: padinnya na sorokovij khvylyni ne z'yidaye
 zapysanoho.
@@ -94,18 +93,32 @@ def alive(pid):
     return code.value == 259  # STILL_ACTIVE
 
 
-# --- джерела ----------------------------------------------------------------
+# --- спільна частина джерел -------------------------------------------------
+def drain(cap, emit):
+    """Zabyraye vsi hotovi pakety. Povertaye kilkist' semliv."""
+    got = 0
+    while True:
+        n = cap.GetNextPacketSize()
+        if not n:
+            return got
+        data, nr, flags, _, _ = cap.GetBuffer()
+        if flags & wl.AUDCLNT_BUFFERFLAGS_SILENT:
+            arr = np.zeros(nr, dtype=np.float32)
+        else:
+            arr = np.frombuffer(ctypes.string_at(data, nr * 2), dtype=np.int16).astype(np.float32) / 32768.0
+        cap.ReleaseBuffer(nr)
+        emit(arr)
+        got += nr
+
+
 class Source:
-    """Spil'nyj vyhlyad: blocks() viddaye (first_sample_index, float32 blok)."""
+    """Spil'nyj vyhlyad: blocks() viddaye (first_sample_index, float32 blok).
 
-    def blocks(self, timeout=1.0):
-        raise NotImplementedError
+    Nashchadok realizuye lyshe _open() -> (client, cap, ev) abo None, koly
+    dzherela shche nemaye.
+    """
 
-
-class ProcessLoopback(Source):
-    def __init__(self, name=None, pid=None, include_tree=True, wav_path=None, on_event=None):
-        self.name, self.pid = name, pid
-        self.include_tree = include_tree
+    def __init__(self, wav_path=None, on_event=None):
         self.wav_path = pathlib.Path(wav_path) if wav_path else None
         self.on_event = on_event or (lambda *a: None)
         self.q = queue.Queue()
@@ -128,57 +141,41 @@ class ProcessLoopback(Source):
         if n > 0:
             self._emit(np.zeros(n, dtype=np.float32))
 
-    def _resolve(self):
-        pid = self.pid or find_target(self.name)
-        return pid
+    def _open(self, fmt):
+        raise NotImplementedError
+
+    def _still_there(self):
+        return True
 
     def _run(self):
         fmt = wl.make_format(wl.WAVE_FORMAT_PCM, 1, RATE, 16)
         while not self._stop.is_set():
-            pid = self._resolve()
-            if pid is None or not alive(pid):
-                self.on_event("waiting", self.name)
-                t0 = time.perf_counter()
-                self._stop.wait(1.0)
-                self._pad(time.perf_counter() - t0)
-                continue
+            t0 = time.perf_counter()
             try:
-                client, cap, ev = wl.open_stream(pid, fmt, self.include_tree)
-                client.Start()
-            except Exception as e:                      # процес зник між пошуком і відкриттям
-                self.on_event("open_failed", f"{pid}: {e}")
-                t0 = time.perf_counter()
+                opened = self._open(fmt)
+            except Exception as e:
+                self.on_event("open_failed", str(e))
+                opened = None
+            if opened is None:
                 self._stop.wait(1.0)
-                self._pad(time.perf_counter() - t0)
+                self._pad(time.perf_counter() - t0)   # пауза теж частина стрічки
                 continue
-            self.on_event("attached", pid)
+            client, cap, ev = opened
+            client.Start()
             t_last = time.perf_counter()
             try:
                 while not self._stop.is_set():
                     wl._k32.WaitForSingleObject(ev, 200)
-                    got = 0
-                    while True:
-                        n = cap.GetNextPacketSize()
-                        if not n:
-                            break
-                        data, nr, flags, _, _ = cap.GetBuffer()
-                        if flags & wl.AUDCLNT_BUFFERFLAGS_SILENT:
-                            arr = np.zeros(nr, dtype=np.float32)
-                        else:
-                            raw = ctypes.string_at(data, nr * 2)
-                            arr = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
-                        cap.ReleaseBuffer(nr)
-                        self._emit(arr)
-                        got += nr
+                    got = drain(cap, self._emit)
                     now = time.perf_counter()
                     if got:
                         t_last = now
-                    elif now - t_last > 2.0:            # потік став: процес міг померти
-                        if not alive(pid):
-                            raise ConnectionResetError("target gone")
+                    elif now - t_last > 2.0:          # потік став: джерело могло зникнути
+                        if not self._still_there():
+                            raise ConnectionResetError("source gone")
                         t_last = now
             except Exception as e:
-                self.on_event("detached", f"{pid}: {e}")
+                self.on_event("detached", str(e))
             finally:
                 try:
                     client.Stop()
@@ -211,3 +208,37 @@ class ProcessLoopback(Source):
                 yield self.q.get(timeout=timeout)
             except queue.Empty:
                 return
+
+
+class ProcessLoopback(Source):
+    """Zvuk odniyeyi programy (z dochirnimy procesamy)."""
+
+    def __init__(self, name=None, pid=None, include_tree=True, wav_path=None, on_event=None):
+        super().__init__(wav_path, on_event)
+        self.name, self.pid = name, pid
+        self.include_tree = include_tree
+        self.attached = None
+
+    def _open(self, fmt):
+        pid = self.pid or (find_target(self.name) if self.name else None)
+        if pid is None or not alive(pid):
+            self.on_event("waiting", self.name or self.pid)
+            return None
+        out = wl.open_stream(pid, fmt, self.include_tree)
+        self.attached = pid
+        self.on_event("attached", pid)
+        return out
+
+    def _still_there(self):
+        return alive(self.attached) if self.attached else False
+
+
+class MicSource(Source):
+    """Mikrofon za zamovchuvannyam. Okremym dzherelom, a ne domishkoyu do
+    zvuku zustrichi: vidlunnya z dynamikiv daye tu samu movu dvichi zi
+    zsuvom, a same na zbihu dvokh rozpiznavan' trymayetsya LocalAgreement."""
+
+    def _open(self, fmt):
+        client, cap, ev, dev = wl.open_mic_stream(fmt)
+        self.on_event("mic", dev)
+        return client, cap, ev
