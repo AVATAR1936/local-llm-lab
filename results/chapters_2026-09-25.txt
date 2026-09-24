@@ -1,0 +1,59 @@
+# variant A: model segments whole transcript (protocol_chapters.chapters)
+lec1 1 {'out_tokens': 1832, 'seconds': 49.9, 'prompt_tokens': 14644} {'chapters': 7, 'sections': 16, 'fake_ts': [], 'in_order': False, 'max_gap_min': 20.8, 'gaps_over': [('11:18', 20.8)], 'head_min': 0.0, 'tail_min': 1.2, 'duration_min': 65.2}
+lec1 2 {'out_tokens': 2388, 'seconds': 51.0, 'prompt_tokens': 14644} {'chapters': 10, 'sections': 23, 'fake_ts': [], 'in_order': True, 'max_gap_min': 8.7, 'gaps_over': [], 'head_min': 0.0, 'tail_min': 4.6, 'duration_min': 65.2}
+lec1 3 {'out_tokens': 1495, 'seconds': 31.9, 'prompt_tokens': 14644} {'chapters': 6, 'sections': 12, 'fake_ts': ['00:35:43', '00:35:43'], 'in_order': True, 'max_gap_min': 16.4, 'gaps_over': [('35:43', 16.4)], 'head_min': 0.0, 'tail_min': 13.1, 'duration_min': 65.2}
+lec1 boundary F1 pairs: [0.71, 0.92, 0.75]
+lec2 1 {'out_tokens': 2318, 'seconds': 67.0, 'prompt_tokens': 32459} {'chapters': 10, 'sections': 21, 'fake_ts': ['00:53:40'], 'in_order': False, 'max_gap_min': 21.3, 'gaps_over': [('19:38', 19.4), ('63:00', 21.3)], 'head_min': 0.0, 'tail_min': 3.1, 'duration_min': 94.3}
+lec2 2 {'out_tokens': 2720, 'seconds': 59.1, 'prompt_tokens': 32459} {'chapters': 14, 'sections': 25, 'fake_ts': [], 'in_order': True, 'max_gap_min': 11.6, 'gaps_over': [], 'head_min': 0.0, 'tail_min': 10.1, 'duration_min': 94.3}
+lec2 3 {'out_tokens': 2105, 'seconds': 47.3, 'prompt_tokens': 32459} {'chapters': 9, 'sections': 19, 'fake_ts': ['01:00:00', '01:00:00'], 'in_order': True, 'max_gap_min': 27.0, 'gaps_over': [('64:13', 27.0)], 'head_min': 0.0, 'tail_min': 3.1, 'duration_min': 94.3}
+lec2 boundary F1 pairs: [0.53, 0.68, 0.83]
+math 1 {'out_tokens': 1937, 'seconds': 58.9, 'prompt_tokens': 30940} {'chapters': 9, 'sections': 17, 'fake_ts': [], 'in_order': True, 'max_gap_min': 11.3, 'gaps_over': [], 'head_min': 0.0, 'tail_min': 1.6, 'duration_min': 88.4}
+math 2 {'out_tokens': 1858, 'seconds': 41.0, 'prompt_tokens': 30940} {'chapters': 7, 'sections': 15, 'fake_ts': [], 'in_order': True, 'max_gap_min': 29.2, 'gaps_over': [('20:11', 29.2)], 'head_min': 0.0, 'tail_min': 1.6, 'duration_min': 88.4}
+math 3 {'out_tokens': 2022, 'seconds': 45.1, 'prompt_tokens': 30940} {'chapters': 9, 'sections': 15, 'fake_ts': [], 'in_order': True, 'max_gap_min': 16.3, 'gaps_over': [('52:01', 16.3)], 'head_min': 0.0, 'tail_min': 1.6, 'duration_min': 88.4}
+math boundary F1 pairs: [0.63, 0.67, 0.75]
+exit 0
+
+# variant B: 5-min windows + per-window new_topic (prompt v1)
+lec1 1 {'calls': 2, 'out_tokens': 1992, 'seconds': 54.9, 'missing_after': []} chapters 1 windows 13 points 52
+lec1 2 {'calls': 2, 'out_tokens': 1909, 'seconds': 41.6, 'missing_after': []} chapters 1 windows 13 points 52
+lec1 3 {'calls': 2, 'out_tokens': 1989, 'seconds': 42.4, 'missing_after': []} chapters 1 windows 13 points 52
+lec1 boundary F1 pairs: [1.0, 1.0, 1.0]
+lec2 1 {'calls': 2, 'out_tokens': 3238, 'seconds': 81.4, 'missing_after': []} chapters 3 windows 19 points 75
+lec2 2 {'calls': 2, 'out_tokens': 3256, 'seconds': 68.7, 'missing_after': []} chapters 3 windows 19 points 76
+lec2 3 {'calls': 2, 'out_tokens': 3042, 'seconds': 67.8, 'missing_after': []} chapters 3 windows 19 points 75
+lec2 boundary F1 pairs: [1.0, 1.0, 1.0]
+math 1 {'calls': 2, 'out_tokens': 2835, 'seconds': 66.4, 'missing_after': []} chapters 2 windows 18 points 68
+math 2 {'calls': 2, 'out_tokens': 2849, 'seconds': 63.8, 'missing_after': []} chapters 2 windows 18 points 70
+math 3 {'calls': 2, 'out_tokens': 2995, 'seconds': 65.3, 'missing_after': []} chapters 2 windows 18 points 72
+math boundary F1 pairs: [1.0, 1.0, 1.0]
+exit 0
+
+# variant B2: same, chapter scale defined in prompt
+lec1 1 {'calls': 2, 'out_tokens': 1929, 'seconds': 48.6, 'missing_after': []} chapters 1 windows 13 points 52
+lec1 2 {'calls': 2, 'out_tokens': 1957, 'seconds': 43.1, 'missing_after': []} chapters 1 windows 13 points 52
+lec1 3 {'calls': 2, 'out_tokens': 2002, 'seconds': 43.6, 'missing_after': []} chapters 1 windows 13 points 52
+lec1 boundary F1 pairs: [1.0, 1.0, 1.0]
+lec2 1 {'calls': 2, 'out_tokens': 3018, 'seconds': 80.3, 'missing_after': []} chapters 1 windows 19 points 76
+lec2 2 {'calls': 2, 'out_tokens': 3088, 'seconds': 69.4, 'missing_after': []} chapters 2 windows 19 points 75
+lec2 3 {'calls': 2, 'out_tokens': 3000, 'seconds': 64.9, 'missing_after': []} chapters 2 windows 19 points 75
+lec2 boundary F1 pairs: [0.67, 0.67, 1.0]
+math 1 {'calls': 2, 'out_tokens': 2405, 'seconds': 59.5, 'missing_after': []} chapters 1 windows 18 points 63
+math 2 {'calls': 2, 'out_tokens': 2518, 'seconds': 57.0, 'missing_after': []} chapters 1 windows 18 points 68
+math 3 {'calls': 2, 'out_tokens': 2508, 'seconds': 57.1, 'missing_after': []} chapters 2 windows 18 points 67
+math boundary F1 pairs: [1.0, 0.67, 0.67]
+exit 0
+
+# variant C: 5-min windows + global grouping (group)
+lec1 1 {'calls': 2, 'out_tokens': 2034, 'seconds': 50.1, 'missing_after': [], 'group': {'out_tokens': 256, 'seconds': 6.9, 'valid_before_repair': True}} chapters 5 windows 13 points 52
+lec1 2 {'calls': 2, 'out_tokens': 1942, 'seconds': 42.4, 'missing_after': [], 'group': {'out_tokens': 298, 'seconds': 7.7, 'valid_before_repair': True}} chapters 6 windows 13 points 52
+lec1 3 {'calls': 2, 'out_tokens': 1851, 'seconds': 40.4, 'missing_after': [], 'group': {'out_tokens': 341, 'seconds': 8.6, 'valid_before_repair': True}} chapters 7 windows 13 points 52
+lec1 boundary F1 pairs: [0.73, 0.83, 0.92]
+lec2 1 {'calls': 2, 'out_tokens': 2810, 'seconds': 69.1, 'missing_after': [], 'group': {'out_tokens': 398, 'seconds': 10.2, 'valid_before_repair': True}} chapters 8 windows 19 points 65
+lec2 2 {'calls': 2, 'out_tokens': 2736, 'seconds': 59.3, 'missing_after': [], 'group': {'out_tokens': 368, 'seconds': 9.6, 'valid_before_repair': True}} chapters 7 windows 19 points 76
+lec2 3 {'calls': 2, 'out_tokens': 2766, 'seconds': 60.0, 'missing_after': [], 'group': {'out_tokens': 375, 'seconds': 9.7, 'valid_before_repair': True}} chapters 7 windows 19 points 76
+lec2 boundary F1 pairs: [0.8, 0.93, 0.86]
+math 1 {'calls': 2, 'out_tokens': 2791, 'seconds': 67.1, 'missing_after': [], 'group': {'out_tokens': 314, 'seconds': 8.6, 'valid_before_repair': True}} chapters 6 windows 18 points 70
+math 2 {'calls': 2, 'out_tokens': 2772, 'seconds': 59.6, 'missing_after': [], 'group': {'out_tokens': 334, 'seconds': 8.9, 'valid_before_repair': True}} chapters 7 windows 18 points 70
+math 3 {'calls': 2, 'out_tokens': 2771, 'seconds': 59.7, 'missing_after': [], 'group': {'out_tokens': 423, 'seconds': 10.7, 'valid_before_repair': True}} chapters 9 windows 18 points 72
+math boundary F1 pairs: [0.62, 0.8, 0.88]
+exit 0
