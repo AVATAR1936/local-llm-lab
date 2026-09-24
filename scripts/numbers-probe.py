@@ -11,7 +11,10 @@ usomu protokoli, bo "vypav z rozdilu" i "vypav zovsim" - rizni khvoroby.
 Vyhid: out/numbers/<variant>__s<seed>.md (u git ne jde - tam imena),
 results/numbers_<data>.csv (lyshe id faktiv i 0/1).
 """
-import argparse, csv, json, pathlib, re, time, urllib.request
+import argparse, csv, json, pathlib, re, sys, time, urllib.request
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import protocol_numbers
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 TRANSCRIPT = ROOT / "data" / "transcripts" / "lecture_long_65min.txt"
@@ -53,6 +56,7 @@ NUMBERS_PROMPT = """Випиши зі стенограми всі числа, щ
 """
 
 VARIANTS = {"full": PROTOCOL_PROMPT, "numbers": NUMBERS_PROMPT}
+VARIANTS["extract"] = None          # не промпт, а protocol_numbers: код + класифікація
 
 D = r"\s*(?:-|–|—|по|до)\s*"          # діапазон: 17-29, 17 по 29, 17 до 29
 FACTS = {
@@ -64,7 +68,7 @@ FACTS = {
     "F06_test_15":          r"тест\w*[^.\n]{0,40}(?<!\d)15\s*бал|(?<!\d)15\s*бал\w*[^.\n]{0,30}тест",
     "F07_tests_30":         r"тест\w*[^.\n]{0,40}(?<!\d)30\s*бал|(?<!\d)30\s*бал\w*[^.\n]{0,30}тест",
     "F08_bonus_upto_5":     r"до\s*5\s*бал",
-    "F09_slides_5_7":       r"(?<!\d)5\s*[-–]\s*7\s*слайд|слайд\w*[^.\n]{0,40}(?<!\d)5\s*[-–]\s*7(?!\d)",
+    "F09_slides_5_7":       r"(?<!\d)(?:від\s*)?5\s*(?:[-–]|до)\s*7\s*слайд|слайд\w*[^.\n]{0,40}(?<!\d)5\s*(?:[-–]|до)\s*7(?!\d)",
     "F10_extra_test_5":     r"тест\w*[^.\n]{0,60}(?<!\d)5\s*бал|(?<!\d)5\s*бал\w*[^.\n]{0,60}тест",
     "F11_att1_min_15":      r"(?:не\s*менше|мінімум|щонайменше|мін\.)\s*15",
     "F12_att2_30":          r"атестац\w*[^.\n]{0,60}(?<!\d)30\s*бал|(?<!\d)30\s*бал\w*[^.\n]{0,60}атестац",
@@ -78,7 +82,7 @@ FACTS = {
     "F20_test2_6_or_13":    r"(?<!\d)6(?:-?го)?[\s,]*(?:або|чи|/|,)[\s,]*(?:або\s*)?13",
     "F21_credit_26_to_7":   r"26(?:\s*трав\w*)?" + D + r"7\s*черв",
     "F22_retake_23_28":     r"23" + D + r"28",
-    "F23_avg_7_9":          r"(?<!\d)7\s*[-–]\s*9(?!\d)",
+    "F23_avg_7_9":          r"(?<!\d)7\s*(?:[-–]|до)\s*9(?!\d)",
 }
 
 
@@ -141,8 +145,27 @@ def main():
                         "out_tokens", "tps"])
         for seed in args.seeds:
             path = OUT / f"{args.variant}__t{args.temperature}__s{seed}.md"
-            if args.rescore:
+            if args.rescore and args.variant == "extract":
+                # Розділ перезбирається з класифікації: правка section() діє без моделі.
+                d = json.loads(path.with_suffix(".json").read_text(encoding="utf-8"))
+                ms = [{k: it[k] for k in ("id", "ts", "text", "prev")} for it in d["items"]]
+                got = {it["id"]: {"kind": it["kind"], "fact": it["fact"]} for it in d["items"] if "kind" in it}
+                text = protocol_numbers.section(ms, got)
+                meta = {"out_tokens": d["stats"]["out_tokens"], "tps": ""}
+                path.write_text(text, encoding="utf-8")
+            elif args.rescore:
                 text, meta = path.read_text(encoding="utf-8"), {}
+            elif args.variant == "extract":
+                # Числа знаходить код, модель лише класифікує кожне речення.
+                ms = protocol_numbers.mentions(transcript)
+                got, st = protocol_numbers.classify(ms, seed)
+                text = protocol_numbers.section(ms, got)
+                meta = {"out_tokens": st["out_tokens"], "tps": ""}
+                path.write_text(text, encoding="utf-8")
+                path.with_suffix(".json").write_text(json.dumps(
+                    {"stats": st, "items": [{**m, **got.get(m["id"], {})} for m in ms]},
+                    ensure_ascii=False, indent=1), encoding="utf-8")
+                print(f"  calls {st['calls']}  {st['seconds']:.1f}s  missing {st['missing_after']}", flush=True)
             else:
                 r = ask(VARIANTS[args.variant] + transcript, seed, args.temperature, args.predict)
                 text = r["response"]
