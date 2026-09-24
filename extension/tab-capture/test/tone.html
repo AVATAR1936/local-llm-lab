@@ -1,0 +1,32 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>тон</title>
+<!-- Перевірка ізоляції і часу: tone.html?f=440&on=2&off=3 - імпульси,
+     tone.html?f=880 - безперервний тон. Розклад гучності задає сам Web Audio,
+     тож тривалості точні до семпла, а не до таймера сторінки. -->
+<body style="font:20px sans-serif;padding:2em">
+<button id="go" style="font-size:24px">Старт</button> <span id="info"></span>
+<script>
+const q = new URLSearchParams(location.search);
+const f = +(q.get("f") || 440), on = +(q.get("on") || 0), off = +(q.get("off") || 0);
+document.title = `${f} Гц` + (on ? ` ${on}/${off} с` : "");
+document.getElementById("info").textContent = document.title;
+document.getElementById("go").onclick = () => {
+  const c = new AudioContext(), o = c.createOscillator(), g = c.createGain();
+  o.frequency.value = f;
+  o.connect(g).connect(c.destination);
+  const t0 = c.currentTime + 0.1;
+  if (on) {
+    g.gain.setValueAtTime(0, 0);
+    for (let k = 0; k < 200; k++) {
+      g.gain.setValueAtTime(0.2, t0 + k * (on + off));
+      g.gain.setValueAtTime(0, t0 + k * (on + off) + on);
+    }
+  } else {
+    g.gain.value = 0.2;
+  }
+  o.start(t0);
+  document.getElementById("go").disabled = true;
+};
+</script>
+</body>
