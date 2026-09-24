@@ -59,20 +59,23 @@ OPTIONS = {"num_ctx": 32768, "temperature": 0.2, "top_p": 0.9, "top_k": 40,
            "repeat_penalty": 1.0, "num_predict": 6000}
 
 CLASSIFY_PROMPT = """Нижче - пронумеровані речення зі стенограми лекції. У кожному є число (цифрами або словом).
-Для кожного речення визнач:
-- kind: "правило" - число стосується правил цього курсу: бали й оцінювання, строки й дати, кількість робіт чи тестів, умови атестацій і заліку, перездачі, тривалість семестру, статистика оцінок у цьому курсі, обсяг завдань;
-  "фон" - усе інше: скільки людей на занятті, номери аудиторій, роки й події з історії, опитування, новини, приклади, а також коли слово-числівник не означає кількість ("один з варіантів").
-- fact: для "правило" - одне коротке твердження українською: що саме сказано, з числами точно як у реченні. Не округлюй, не обчислюй, не додавай того, чого немає в реченні. Контекст (попереднє речення) - лише щоб зрозуміти, до чого число. Для "фон" - порожній рядок.
+Розклади їх на два списки:
+- rules - речення, де число стосується правил цього курсу: бали й оцінювання, строки й дати, кількість робіт чи тестів, умови атестацій і заліку, перездачі, тривалість семестру, статистика оцінок у цьому курсі, обсяг завдань.
+  Для кожного - id і fact: одне коротке твердження українською, що саме сказано, з числами точно як у реченні. Не округлюй, не обчислюй, не додавай того, чого немає в реченні. Контекст (попереднє речення) - лише щоб зрозуміти, до чого число.
+- background - номери всіх інших речень: скільки людей на занятті, номери аудиторій, роки й події з історії, опитування, новини, приклади й обчислення з матеріалу лекції, а також коли слово-числівник не означає кількість ("один з варіантів").
 
-Рівно один елемент на кожен id.
+Кожен id - рівно в одному зі списків.
 
 РЕЧЕННЯ:
 """
 
-SCHEMA = {"type": "object", "required": ["items"], "properties": {"items": {"type": "array", "items": {
-    "type": "object", "required": ["id", "kind", "fact"],
-    "properties": {"id": {"type": "integer"}, "kind": {"type": "string", "enum": ["правило", "фон"]},
-                   "fact": {"type": "string"}}}}}}
+# "Фон" - лише номер: ~2 токени замість ~15 на повний запис. На математичній
+# парі 461 речення з числами, і повні записи не влазили в ліміт відповіді.
+SCHEMA = {"type": "object", "required": ["background", "rules"], "properties": {
+    "background": {"type": "array", "items": {"type": "integer"}},
+    "rules": {"type": "array", "items": {"type": "object", "required": ["id", "fact"],
+              "properties": {"id": {"type": "integer"}, "fact": {"type": "string"}}}}}}
+BATCH = 120          # речень на виклик: довга пара не впирається в ліміт у принципі
 
 
 def _ask(prompt, seed):
@@ -92,19 +95,30 @@ def _render(items):
 def classify(ms, seed=42, retries=2):
     """{id: {kind, fact}}. Vidpovid' na kozhen id perevirayet'sya; propushcheni
     pereprytuyut'sya okremo - movchky zahubytysya nichoho ne mozhe."""
-    got, stats = {}, {"calls": 0, "out_tokens": 0, "seconds": 0.0, "missing_after": []}
+    got, stats = {}, {"calls": 0, "out_tokens": 0, "seconds": 0.0, "missing_after": [], "truncated": 0}
     todo = ms
     for _ in range(1 + retries):
         if not todo:
             break
-        r = _ask(CLASSIFY_PROMPT + _render(todo), seed)
-        stats["calls"] += 1
-        stats["out_tokens"] += r.get("eval_count", 0)
-        stats["seconds"] += r.get("total_duration", 0) / 1e9
-        ids = {m["id"] for m in todo}
-        for it in json.loads(r["response"]).get("items", []):
-            if it.get("id") in ids and it["id"] not in got:
-                got[it["id"]] = {"kind": it["kind"], "fact": it["fact"].strip()}
+        for k in range(0, len(todo), BATCH):
+            part = todo[k:k + BATCH]
+            r = _ask(CLASSIFY_PROMPT + _render(part), seed)
+            stats["calls"] += 1
+            stats["out_tokens"] += r.get("eval_count", 0)
+            stats["seconds"] += r.get("total_duration", 0) / 1e9
+            try:
+                ans = json.loads(r["response"])
+            except json.JSONDecodeError:
+                # Обрізана відповідь: уся пачка піде на повтор, а не в тишу.
+                stats["truncated"] += 1
+                continue
+            ids = {m["id"] for m in part}
+            for it in ans.get("rules", []):
+                if it.get("id") in ids and it["id"] not in got:
+                    got[it["id"]] = {"kind": "правило", "fact": it.get("fact", "").strip()}
+            for i in ans.get("background", []):
+                if i in ids and i not in got:
+                    got[i] = {"kind": "фон", "fact": ""}
         todo = [m for m in todo if m["id"] not in got]
     stats["missing_after"] = [m["id"] for m in todo]
     return got, stats
