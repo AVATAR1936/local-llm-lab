@@ -247,3 +247,17 @@ class MicSource(Source):
         client, cap, ev, dev = wl.open_mic_stream(fmt)
         self.on_event("mic", dev)
         return client, cap, ev
+
+
+class TabSource(Source):
+    """Zvuk vkladky vid rozshyrennya Chrome: bloky pryhodyat' zzovni cherez
+    feed(), a ne z WASAPI. Vlasnoho potoku zakhoplennya nemaye."""
+
+    def _run(self):
+        self._stop.wait()
+
+    def feed(self, arr):
+        if self.t_origin is None:
+            # Семпл 0 прозвучав на тривалість блока раніше, ніж блок прийшов.
+            self.t_origin = time.perf_counter() - len(arr) / RATE
+        self._emit(arr)

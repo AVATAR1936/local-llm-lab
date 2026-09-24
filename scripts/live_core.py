@@ -53,7 +53,8 @@ def make_transcribe(model, vad):
 class Config:
     def __init__(self, target="chrome.exe", pid=0, model="turbo", chunk=1.0, trim=15.0,
                  max_sec=30.0, vad=True, prompt=True, mic=False,
-                 rec_dir=None, out_dir=None, seconds=0.0):
+                 rec_dir=None, out_dir=None, seconds=0.0, source="process"):
+        self.source = source    # "process" - WASAPI процесу, "tab" - розширення Chrome
         self.target, self.pid, self.model = target, pid, model
         self.chunk, self.trim, self.max_sec = chunk, trim, max_sec
         self.vad, self.prompt, self.mic = vad, prompt, mic
@@ -92,7 +93,8 @@ class LiveSession:
     # -- стан для показу
     def state(self):
         wall = (time.perf_counter() - self.t0) if self.t0 else 0.0
-        return {"id": self.id, "status": self.status, "target": self.cfg.pid or self.cfg.target,
+        target = "tab" if self.cfg.source == "tab" else (self.cfg.pid or self.cfg.target)
+        return {"id": self.id, "status": self.status, "target": target,
                 "attached_pid": self.attached_pid, "model": self.cfg.model,
                 "wall_s": round(wall, 1), "audio_s": round(self.fed / SR, 1),
                 "lag_s": round(wall - self.fed / SR, 1) if self.t0 else 0.0,
@@ -131,9 +133,12 @@ class LiveSession:
         transcribe = make_transcribe(model, self.cfg.vad)
         self.proc = OnlineASRProcessor(transcribe, trim_sec=self.cfg.trim,
                                        use_prompt=self.cfg.prompt, max_sec=self.cfg.max_sec)
-        self.src = asrc.ProcessLoopback(
-            name=None if self.cfg.pid else self.cfg.target, pid=self.cfg.pid or None,
-            wav_path=self.wav, on_event=self._src_event)
+        if self.cfg.source == "tab":
+            self.src = asrc.TabSource(wav_path=self.wav, on_event=self._src_event)
+        else:
+            self.src = asrc.ProcessLoopback(
+                name=None if self.cfg.pid else self.cfg.target, pid=self.cfg.pid or None,
+                wav_path=self.wav, on_event=self._src_event)
         self.src.start()
         if self.cfg.mic:
             # Та сама модель, окремий процесор: у кожної доріжки свій буфер і

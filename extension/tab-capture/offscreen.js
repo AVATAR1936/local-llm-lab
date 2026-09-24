@@ -1,18 +1,54 @@
 // Прихована сторінка: відкриває потік вкладки і розводить його на дві гілки.
 //   1) відтворення рідною частотою - у навушники. Без цього вкладку не
 //      чутно: під час захоплення Chrome глушить її звук для користувача;
-//   2) запис на 16 кГц - для розпізнавання. Частоту знижує сам AudioContext.
+//   2) 16 кГц моно - у службу по WebSocket. Частоту знижує сам AudioContext.
+// Запис на диск веде служба, як і для процесного захоплення.
 
-let stream = null, playCtx = null, recCtx = null;
-let chunks = [], samples = 0, t0 = 0;
+const SERVICE = "ws://127.0.0.1:8756/api/live/tab";
+const BATCH = 1600;              // 100 мс при 16 кГц: 10 повідомлень на секунду
+
+let stream = null, playCtx = null, recCtx = null, sock = null;
+let ready = false, batch = new Float32Array(BATCH), fill = 0;
 
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg.target !== "offscreen") return;
-  if (msg.type === "start") start(msg.streamId);
-  if (msg.type === "stop") stop();
+  if (msg.type === "start") start(msg.streamId).catch((e) => fail(String(e)));
+  if (msg.type === "stop") stop("user");
 });
 
+function report(type, extra) {
+  chrome.runtime.sendMessage({ target: "background", type, ...extra });
+}
+
+function fail(reason) {
+  console.error(reason);
+  stop(reason);
+}
+
+function push(block) {
+  if (!ready) return;           // до "ready" служба ще вантажить модель
+  let i = 0;
+  while (i < block.length) {
+    const n = Math.min(block.length - i, BATCH - fill);
+    batch.set(block.subarray(i, i + n), fill);
+    fill += n; i += n;
+    if (fill === BATCH) {
+      sock.send(batch.buffer);
+      batch = new Float32Array(BATCH); fill = 0;
+    }
+  }
+}
+
 async function start(streamId) {
+  sock = new WebSocket(SERVICE);
+  sock.binaryType = "arraybuffer";
+  sock.onmessage = (e) => {
+    const m = JSON.parse(e.data);
+    if (m.type === "ready") { ready = true; report("ready", { id: m.id }); }
+  };
+  sock.onclose = (e) => { if (stream) fail(`service closed: ${e.code} ${e.reason}`); };
+  sock.onerror = () => fail("service unreachable: " + SERVICE);
+
   stream = await navigator.mediaDevices.getUserMedia({
     audio: { mandatory: { chromeMediaSource: "tab", chromeMediaSourceId: streamId } },
     video: false,
@@ -23,44 +59,25 @@ async function start(streamId) {
   recCtx = new AudioContext({ sampleRate: 16000 });
   await recCtx.audioWorklet.addModule("worklet.js");
   const tap = new AudioWorkletNode(recCtx, "pcm-tap");
-  tap.port.onmessage = (e) => { chunks.push(e.data); samples += e.data.length; };
+  tap.port.onmessage = (e) => push(e.data);
   // Вузол, не під'єднаний до виходу, Chrome може не обробляти - тому
   // під'єднуємо через нульове підсилення: чути нічого не буде.
   const mute = recCtx.createGain();
   mute.gain.value = 0;
   recCtx.createMediaStreamSource(stream).connect(tap).connect(mute).connect(recCtx.destination);
 
-  // Вкладку закрили - потік скінчився: зберігаємо те, що є.
-  stream.getAudioTracks()[0].onended = stop;
-  chunks = []; samples = 0; t0 = performance.now();
-  console.log("start", { play_rate: playCtx.sampleRate, rec_rate: recCtx.sampleRate });
+  // Вкладку закрили - потік скінчився, сеанс теж.
+  stream.getAudioTracks()[0].onended = () => stop("tab closed");
 }
 
-function stop() {
-  if (!stream) return;
-  const wall = (performance.now() - t0) / 1000;
-  stream.getTracks().forEach((t) => t.stop());
-  playCtx.close(); recCtx.close();
-  const stats = {
-    play_rate: playCtx.sampleRate, rec_rate: recCtx.sampleRate,
-    wall_s: +wall.toFixed(2), audio_s: +(samples / recCtx.sampleRate).toFixed(2),
-  };
-  const url = URL.createObjectURL(toWav(chunks, samples, recCtx.sampleRate));
-  stream = null; chunks = [];
-  chrome.runtime.sendMessage({ target: "background", type: "saved", url, stats });
-}
-
-function toWav(parts, n, rate) {
-  const buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
-  const str = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
-  str(0, "RIFF"); v.setUint32(4, 36 + n * 2, true); str(8, "WAVE");
-  str(12, "fmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
-  v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true);
-  v.setUint16(32, 2, true); v.setUint16(34, 16, true);
-  str(36, "data"); v.setUint32(40, n * 2, true);
-  let o = 44;
-  for (const p of parts) for (let i = 0; i < p.length; i++, o += 2) {
-    v.setInt16(o, Math.max(-1, Math.min(1, p[i])) * 32767, true);
-  }
-  return new Blob([buf], { type: "audio/wav" });
+function stop(reason) {
+  const s = stream;
+  stream = null; ready = false; fill = 0;
+  if (s) s.getTracks().forEach((t) => t.stop());
+  if (playCtx) playCtx.close();
+  if (recCtx) recCtx.close();
+  playCtx = recCtx = null;
+  if (sock && sock.readyState <= 1) sock.close();
+  sock = null;
+  report("stopped", { reason });
 }

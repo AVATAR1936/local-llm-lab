@@ -11,7 +11,8 @@ import argparse, asyncio, json, os, sys, threading
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import audio_source as asrc
 import live_core
-from fastapi import FastAPI, HTTPException
+import numpy as np
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -74,19 +75,58 @@ def live_state():
     return _session.state()
 
 
+def _busy():
+    return _session is not None and _session.status in ("loading", "running")
+
+
+def _open_session(cfg):
+    global _session
+    _session = live_core.LiveSession(
+        cfg,
+        on_words=lambda ws: publish("words", ws),
+        on_event=lambda k, v: publish("event", {"kind": k, "value": v}))
+    return _session.start()
+
+
 @app.post("/api/live/start")
 def live_start(body: StartBody):
-    global _session
     with _lock:
-        if _session is not None and _session.status in ("loading", "running"):
+        if _busy():
             raise HTTPException(409, "session already running")
-        cfg = live_core.Config(**body.model_dump())
-        _session = live_core.LiveSession(
-            cfg,
-            on_words=lambda ws: publish("words", ws),
-            on_event=lambda k, v: publish("event", {"kind": k, "value": v}))
-        _session.start()
+        _open_session(live_core.Config(**body.model_dump()))
         return _session.state()
+
+
+@app.websocket("/api/live/tab")
+async def live_tab(ws: WebSocket, model: str = "turbo", mic: bool = False):
+    """Seans vid rozshyrennya: pidkluchennya - pochatok, rozryv - kinets'.
+
+    Rozshyrennya shle zvuk lyshe pislya "ready": pershyj seans vantazhyt'
+    model' sekundamy, i zvuk, shcho nakopychyvsya b u soketi, pryjshov by
+    pachkoyu - a z nym zayikhav by j spil'nyj nul' dlya mikrofona.
+    """
+    await ws.accept()
+    sess = None
+    if _lock.acquire(blocking=False):
+        try:
+            if not _busy():
+                cfg = live_core.Config(source="tab", model=model, mic=mic)
+                sess = await asyncio.to_thread(_open_session, cfg)
+        finally:
+            _lock.release()
+    if sess is None:
+        await ws.close(code=1013, reason="session already running")
+        return
+    await ws.send_text(json.dumps({"type": "ready", "id": sess.id}))
+    try:
+        while True:
+            data = await ws.receive_bytes()
+            sess.src.feed(np.frombuffer(data, dtype=np.float32).copy())
+    except WebSocketDisconnect:
+        pass
+    finally:
+        if sess.status in ("running", "stopping"):
+            await asyncio.to_thread(sess.stop)
 
 
 @app.post("/api/live/stop")
