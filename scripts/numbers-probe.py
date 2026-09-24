@@ -19,6 +19,9 @@ import protocol_numbers
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 TRANSCRIPT = ROOT / "data" / "transcripts" / "lecture_long_65min.txt"
 OUT = ROOT / "out" / "numbers"
+# Друга лекція з правилами курсу - інший семестр, інший курс: перевірка, що
+# 23/23 на першій не підігнано під неї.
+TRANSCRIPT_2 = ROOT / "out" / "asr" / "whisper-large-v3+fb+vad-p260210.txt"
 MODEL = "gemma4:12b"
 
 # Той самий промпт, що в раундах 0.6-0.8 (verify.ps1), дослівно.
@@ -86,6 +89,32 @@ FACTS = {
 }
 
 
+# Друга лекція (2026-02-10, безпека мереж): 14 фактів правил курсу. Тут
+# модель може писати числа і словом, і цифрою - шаблони приймають обидва.
+def _n(*forms):
+    return "(?<![\\w'])(?:" + "|".join(forms) + ")(?![\\w'])"
+
+
+N2, N3, N4, N5 = _n("2", "дві", "два", "двох"), _n("3", "три", "трьох"), _n("4", "чотири", "чотирьох"), _n("5", "п'ять", "п'яти")
+N9, N15, N18 = _n("9", "дев'ять", "дев'яти"), _n("15", "п'ятнадцять"), _n("18", "вісімнадцять")
+FACTS_2 = {
+    "G01_exam_semester_60":  r"(?<!\d)60\s*бал",
+    "G02_labs_45":           r"(?<!\d)45\s*бал",
+    "G03_labs_9_by_5":       N9 + r"[^.\n]{0,30}по\s*" + N5 + "|" + N5 + r"\s*по\s*" + N9,
+    "G04_tests_15":          r"(?<!\d)15\s*бал",
+    "G05_tests_3_by_5":      N3 + r"[^.\n]{0,30}по\s*" + N5,
+    "G06_works_9":           N9 + r"\s*(?:лаб\w*\s*)?(?:робіт|лаб)",
+    "G07_classes_18":        N18 + r"\s*занят",
+    "G08_weeks_18_to_15":    N18 + r"[^.\n]{0,60}" + N15 + "|" + N15 + r"\s*тижн",
+    "G09_sections_3":        N3 + r"\s*розділ",
+    "G10_normative_3":       N3 + r"\s*(?:перш\w*\s*)?лекці|перш\w*\s*" + N3 + r"\s*лекці",
+    "G11_services_9":        N9 + r"\s*лекці",
+    "G12_defense_4":         N4 + r"\s*(?:\w+\s*){0,2}лекці",
+    "G13_first_two_labs":    r"перш\w*\s*" + N2 + r"|" + N2 + r"\s*перш",
+    "G14_lab5_changes":      r"(?:п'ят\w*|(?<!\d)5)\s*(?:лаб\w*\s*)?робот",
+}
+
+
 def norm(t):
     t = t.lower().replace("’", "'").replace("ʼ", "'").replace("*", "")
     return re.sub(r"[ \t]+", " ", t)
@@ -116,7 +145,8 @@ def score(text, whole=False):
 def foreign_numbers(text, transcript, whole=False):
     """Chysla z rozdilu, yakykh nemaye u stenohrami: vyhadani abo vyvedeni
     (9 100 zamist' 9 060, "100 baliv" yak suma). Tajmkody ne rakhuyut'sya."""
-    body = transcript.split("\n", 3)[3]
+    # Шапка файлу (рядки з #) - не стенограма: там модель і час обробки.
+    body = "\n".join(l for l in transcript.splitlines() if not l.startswith("#"))
     have = set(re.findall(r"\d+", re.sub(r"\[\d\d:\d\d:\d\d\]", " ", body)))
     have |= {"20" + n for n in have if len(n) == 2}    # "23-го року" -> 2023 - не вигадка
     t = norm(text)
@@ -133,10 +163,17 @@ def main():
     ap.add_argument("--predict", type=int, default=3000)
     ap.add_argument("--csv", default=str(ROOT / "results" / f"numbers_{time.strftime('%Y-%m-%d')}.csv"))
     ap.add_argument("--rescore", action="store_true", help="only rescore saved outputs")
+    ap.add_argument("--lecture", type=int, default=1, choices=[1, 2])
     args = ap.parse_args()
 
+    global FACTS
+    src, pre = TRANSCRIPT, ""
+    if args.lecture == 2:
+        FACTS, src, pre = FACTS_2, TRANSCRIPT_2, "l2__"
+        if args.csv.endswith(f"numbers_{time.strftime('%Y-%m-%d')}.csv"):
+            args.csv = args.csv.replace("numbers_", "numbers_l2_")
     OUT.mkdir(parents=True, exist_ok=True)
-    transcript = TRANSCRIPT.read_text(encoding="utf-8")
+    transcript = src.read_text(encoding="utf-8")
     new = not pathlib.Path(args.csv).exists()
     with open(args.csv, "a", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
@@ -144,7 +181,7 @@ def main():
             w.writerow(["variant", "temperature", "seed", "fact", "in_section", "in_doc",
                         "out_tokens", "tps"])
         for seed in args.seeds:
-            path = OUT / f"{args.variant}__t{args.temperature}__s{seed}.md"
+            path = OUT / f"{pre}{args.variant}__t{args.temperature}__s{seed}.md"
             if args.rescore and args.variant == "extract":
                 # Розділ перезбирається з класифікації: правка section() діє без моделі.
                 d = json.loads(path.with_suffix(".json").read_text(encoding="utf-8"))
