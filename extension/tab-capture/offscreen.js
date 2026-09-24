@@ -12,8 +12,9 @@ let ready = false, batch = new Float32Array(BATCH), fill = 0;
 
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg.target !== "offscreen") return;
-  if (msg.type === "start") start(msg.streamId).catch((e) => fail(String(e)));
+  if (msg.type === "start") start(msg.streamId, msg.mic).catch((e) => fail(String(e)));
   if (msg.type === "stop") stop("user");
+  if (msg.type === "mic" && ready) sock.send(JSON.stringify({ type: "mic", on: msg.on }));
 });
 
 function report(type, extra) {
@@ -39,12 +40,13 @@ function push(block) {
   }
 }
 
-async function start(streamId) {
-  sock = new WebSocket(SERVICE);
+async function start(streamId, mic) {
+  sock = new WebSocket(`${SERVICE}?mic=${mic ? 1 : 0}`);
   sock.binaryType = "arraybuffer";
   sock.onmessage = (e) => {
     const m = JSON.parse(e.data);
-    if (m.type === "ready") { ready = true; report("ready", { id: m.id }); }
+    if (m.type === "ready") { ready = true; report("ready", { id: m.id, mic: m.mic }); }
+    if (m.type === "mic") report("mic_on", { on: m.on });
   };
   sock.onclose = (e) => { if (stream) fail(`service closed: ${e.code} ${e.reason}`); };
   sock.onerror = () => fail("service unreachable: " + SERVICE);

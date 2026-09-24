@@ -125,6 +125,7 @@ class Source:
         self.samples = 0          # скільки семплів уже випущено назовні
         self.t_origin = None      # perf_counter() моменту семпла 0: спільний нуль для доріжок
         self._stop = threading.Event()
+        self._paused = threading.Event()
         self._thread = None
         self._wav = None
 
@@ -142,6 +143,20 @@ class Source:
         if n > 0:
             self._emit(np.zeros(n, dtype=np.float32))
 
+    def _skip_to_wall(self):
+        """Pislya pauzy nomer semplu dohanyaye hodynnyk. U fajl - tysha, shchob
+        vin lyshavsya vyrivnyanym; u chergu - nichoho: hanyaty khvylyny nuliv
+        cherez rozpiznavannya nemaye sensu, spozhyvach pobachyt' strybok nomera."""
+        if self.t_origin is None:
+            return
+        n = int((time.perf_counter() - self.t_origin) * RATE) - self.samples
+        if n <= 0:
+            return
+        if self._wav is not None:
+            for k in range(0, n, RATE * 10):
+                self._wav.writeframes(bytes(2 * min(RATE * 10, n - k)))
+        self.samples += n
+
     def _open(self, fmt):
         raise NotImplementedError
 
@@ -150,7 +165,15 @@ class Source:
 
     def _run(self):
         fmt = wl.make_format(wl.WAVE_FORMAT_PCM, 1, RATE, 16)
+        gap = False
         while not self._stop.is_set():
+            if self._paused.is_set():
+                self._stop.wait(0.1)
+                gap = True
+                continue
+            if gap:
+                self._skip_to_wall()
+                gap = False
             t0 = time.perf_counter()
             try:
                 opened = self._open(fmt)
@@ -169,7 +192,7 @@ class Source:
             if self.t_origin is None:
                 self.t_origin = t_last
             try:
-                while not self._stop.is_set():
+                while not self._stop.is_set() and not self._paused.is_set():
                     wl._k32.WaitForSingleObject(ev, 200)
                     got = drain(cap, self._emit)
                     now = time.perf_counter()
@@ -186,6 +209,9 @@ class Source:
                     client.Stop()
                 except Exception:
                     pass
+            # Відпускаємо пристрій зовсім: на паузі індикатор мікрофона в
+            # Windows має згаснути, а не показувати зайнятий потік.
+            client = cap = opened = None
 
     # -- назовні
     def start(self):
@@ -198,6 +224,12 @@ class Source:
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
         return self
+
+    def pause(self):
+        self._paused.set()
+
+    def resume(self):
+        self._paused.clear()
 
     def stop(self):
         self._stop.set()

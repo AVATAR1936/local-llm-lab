@@ -117,11 +117,20 @@ async def live_tab(ws: WebSocket, model: str = "turbo", mic: bool = False):
     if sess is None:
         await ws.close(code=1013, reason="session already running")
         return
-    await ws.send_text(json.dumps({"type": "ready", "id": sess.id}))
+    await ws.send_text(json.dumps({"type": "ready", "id": sess.id, "mic": sess.mic_on}))
     try:
         while True:
-            data = await ws.receive_bytes()
-            sess.src.feed(np.frombuffer(data, dtype=np.float32).copy())
+            msg = await ws.receive()
+            if msg["type"] == "websocket.disconnect":
+                break
+            if msg.get("bytes"):
+                sess.src.feed(np.frombuffer(msg["bytes"], dtype=np.float32).copy())
+            elif msg.get("text"):
+                # Команди тим самим сокетом: {"type": "mic", "on": true}.
+                cmd = json.loads(msg["text"])
+                if cmd.get("type") == "mic":
+                    on = await asyncio.to_thread(sess.set_mic, bool(cmd.get("on")))
+                    await ws.send_text(json.dumps({"type": "mic", "on": on}))
     except WebSocketDisconnect:
         pass
     finally:
@@ -136,6 +145,17 @@ def live_stop():
         if _session is None or _session.status not in ("loading", "running", "stopping"):
             raise HTTPException(409, "nothing to stop")
         return _session.stop()
+
+
+class MicBody(BaseModel):
+    on: bool
+
+
+@app.post("/api/live/mic")
+def live_mic(body: MicBody):
+    if not _busy():
+        raise HTTPException(409, "no running session")
+    return {"mic": _session.set_mic(body.on)}
 
 
 @app.get("/api/live/text")

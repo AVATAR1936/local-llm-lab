@@ -87,6 +87,9 @@ class LiveSession:
         self.proc = self.mic_proc = None
         self.mic_fed = 0
         self.mic_cycles = []
+        self.mic_on = False
+        self._transcribe = None
+        self._mic_lock = threading.Lock()
         self.wav = cfg.rec_dir / f"{self.id}-out.wav"
         self.mic_wav = cfg.rec_dir / f"{self.id}-mic.wav"
 
@@ -99,7 +102,7 @@ class LiveSession:
                 "wall_s": round(wall, 1), "audio_s": round(self.fed / SR, 1),
                 "lag_s": round(wall - self.fed / SR, 1) if self.t0 else 0.0,
                 "buffer_s": round(len(self.proc.audio) / SR, 1) if self.proc else 0.0,
-                "words": len(self.words), "mic": self.cfg.mic,
+                "words": len(self.words), "mic": self.mic_on,
                 "mic_words": sum(w["who"] == "me" for w in self.words),
                 "mic_buffer_s": round(len(self.mic_proc.audio) / SR, 1) if self.mic_proc else 0.0,
                 "cycle_median_s": round(statistics.median(self.cycles), 2) if self.cycles else None,
@@ -107,7 +110,7 @@ class LiveSession:
                 "seams": self.proc.seams if self.proc else 0}
 
     def text(self):
-        if not self.cfg.mic:
+        if not self.mic_src:
             return "".join(w["word"] for w in self.words).strip()
         return merge_tracks(self.words)
 
@@ -130,8 +133,8 @@ class LiveSession:
         self.status = "loading"
         self.on_event("status", self.status)
         model = load_model(self.cfg.model)
-        transcribe = make_transcribe(model, self.cfg.vad)
-        self.proc = OnlineASRProcessor(transcribe, trim_sec=self.cfg.trim,
+        self._transcribe = make_transcribe(model, self.cfg.vad)
+        self.proc = OnlineASRProcessor(self._transcribe, trim_sec=self.cfg.trim,
                                        use_prompt=self.cfg.prompt, max_sec=self.cfg.max_sec)
         if self.cfg.source == "tab":
             self.src = asrc.TabSource(wav_path=self.wav, on_event=self._src_event)
@@ -141,17 +144,31 @@ class LiveSession:
                 wav_path=self.wav, on_event=self._src_event)
         self.src.start()
         if self.cfg.mic:
-            # Та сама модель, окремий процесор: у кожної доріжки свій буфер і
-            # своє підтвердження, а розпізнаються вони по черзі в одному потоці.
-            self.mic_proc = OnlineASRProcessor(transcribe, trim_sec=self.cfg.trim,
-                                               use_prompt=self.cfg.prompt, max_sec=self.cfg.max_sec)
-            self.mic_src = asrc.MicSource(wav_path=self.mic_wav, on_event=self._src_event)
-            self.mic_src.start()
+            self.set_mic(True)
         self.status = "running"
         self.on_event("status", self.status)
         self._thread = threading.Thread(target=self._worker, daemon=True)
         self._thread.start()
         return self
+
+    def set_mic(self, on):
+        """Mikrofon vmykayet'sya j vymykayet'sya na l'otu, poseredyni seansu."""
+        with self._mic_lock:
+            if on and self.mic_src is None:
+                # Та сама модель, окремий процесор: у кожної доріжки свій буфер
+                # і своє підтвердження, а розпізнаються вони по черзі в одному
+                # потоці. Процесор - раніше за джерело: цикл дивиться на mic_src.
+                self.mic_proc = OnlineASRProcessor(self._transcribe, trim_sec=self.cfg.trim,
+                                                   use_prompt=self.cfg.prompt, max_sec=self.cfg.max_sec)
+                self.mic_src = asrc.MicSource(wav_path=self.mic_wav, on_event=self._src_event)
+                self.mic_src.start()
+            elif on:
+                self.mic_src.resume()
+            elif self.mic_src:
+                self.mic_src.pause()
+            self.mic_on = bool(on)
+        self.on_event("mic_on", self.mic_on)
+        return self.mic_on
 
     def _src_event(self, kind, value):
         if kind == "attached":
@@ -160,7 +177,7 @@ class LiveSession:
 
     def _worker(self):
         self.t0 = time.perf_counter()
-        pending, mic_pending = [], []
+        pending, mic_pending, mic_next = [], [], 0
         try:
             while not self._stop.is_set():
                 if self.cfg.seconds and time.perf_counter() - self.t0 > self.cfg.seconds:
@@ -180,7 +197,19 @@ class LiveSession:
                 self.cycles.append(time.perf_counter() - c0)
                 self._publish(out, "them", time.perf_counter() - self.t0)
                 if self.mic_src:
-                    mic_pending += [arr for _, arr in self.mic_src.blocks(timeout=0)]
+                    for idx, arr in self.mic_src.blocks(timeout=0):
+                        if idx > mic_next:
+                            # Мікрофон вимикали: стрічка перескочила. Недоказану
+                            # фразу добираємо, як у кінці сеансу, і переносимо
+                            # відлік процесора за паузу.
+                            if mic_pending:
+                                self.mic_proc.insert_audio_chunk(np.concatenate(mic_pending))
+                                mic_pending = []
+                                self._publish(self.mic_proc.process_iter(), "me", time.perf_counter() - self.t0)
+                            self._publish(self.mic_proc.finish(), "me", time.perf_counter() - self.t0)
+                            self.mic_proc.jump(idx / SR)
+                        mic_pending.append(arr)
+                        mic_next = idx + len(arr)
                     m = sum(len(a) for a in mic_pending)
                     if m >= self.cfg.chunk * SR:
                         self.mic_proc.insert_audio_chunk(np.concatenate(mic_pending))
@@ -221,8 +250,8 @@ class LiveSession:
                  "latency_median_s": round(statistics.median(lat), 2),
                  "latency_p90_s": round(lat[int(len(lat) * 0.9)], 2),
                  "latency_max_s": round(lat[-1], 2),
-                 "wav": str(self.wav), "mic_wav": str(self.mic_wav) if self.cfg.mic else None}
-        if self.cfg.mic:
+                 "wav": str(self.wav), "mic_wav": str(self.mic_wav) if self.mic_src else None}
+        if self.mic_src:
             mc = sorted(self.mic_cycles) or [0]
             stats.update({"mic_shift_s": round(self.mic_shift(), 3),
                           "mic_audio_s": round(self.mic_fed / SR, 1),

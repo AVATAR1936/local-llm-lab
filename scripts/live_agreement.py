@@ -149,6 +149,14 @@ class OnlineASRProcessor:
         self.offset = cut
         self.forced += 1
 
+    def jump(self, t):
+        """Strichka pereskochyla vpered (mikrofon vymykaly): bufer porozhnij,
+        vidlik - z t. Nedopidtverdzhene pered tym treba zabraty finish()."""
+        self.audio = np.zeros(0, dtype=np.float32)
+        self.hyp.buffer, self.hyp.new, self.hyp.commited_in_buffer = [], [], []
+        self.hyp.last_commited_time = t
+        self.offset = t
+
     def finish(self):
         o = self.hyp.buffer
         self.hyp.buffer = []

@@ -1,6 +1,10 @@
-// Service worker: клік по значку -> ідентифікатор потоку вкладки.
+// Service worker: команди з вікна значка -> ідентифікатор потоку вкладки.
 // Сам потік тут відкрити не можна (у service worker немає медіа), тому
 // ідентифікатор передається у приховану сторінку offscreen.html.
+//
+// Стан у chrome.storage.session: active (id вкладки або нічого), mic,
+// note (рядок для вікна). Мікрофон за замовчуванням вимкнений і після
+// кожного сеансу вимикається знову.
 
 async function ensureOffscreen() {
   const have = await chrome.runtime.getContexts({ contextTypes: ["OFFSCREEN_DOCUMENT"] });
@@ -13,34 +17,43 @@ async function ensureOffscreen() {
 }
 
 // Значок показує стан: "..." - служба вантажить модель, REC - звук іде,
-// ERR - сеанс обірвався не з волі користувача (причина - у підказці).
-async function show(badge, title, color = "#b00") {
-  await chrome.action.setBadgeText({ text: badge });
+// ERR - сеанс обірвався не з волі користувача (причина - у вікні).
+async function badge(text, color = "#b00") {
+  await chrome.action.setBadgeText({ text });
   await chrome.action.setBadgeBackgroundColor({ color });
-  await chrome.action.setTitle({ title });
 }
 
-chrome.action.onClicked.addListener(async (tab) => {
-  const { active } = await chrome.storage.session.get("active");
+async function toggle(tabId) {
+  const { active, mic } = await chrome.storage.session.get(["active", "mic"]);
   if (active) {
     await chrome.runtime.sendMessage({ target: "offscreen", type: "stop" });
     return;
   }
   await ensureOffscreen();
   // Chrome видає потік вкладки лише у відповідь на дію користувача -
-  // тому один клік на кожну пару, автоматично не вийде.
-  const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id });
-  await chrome.storage.session.set({ active: tab.id });
-  await show("...", "Служба готується", "#888");
-  await chrome.runtime.sendMessage({ target: "offscreen", type: "start", streamId });
-});
+  // тому клік на кожну пару, автоматично не вийде.
+  const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tabId });
+  await chrome.storage.session.set({ active: tabId, note: "Служба готується" });
+  await badge("...", "#888");
+  await chrome.runtime.sendMessage({ target: "offscreen", type: "start", streamId, mic: !!mic });
+}
 
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg.target !== "background") return;
-  if (msg.type === "ready") show("REC", `Сеанс ${msg.id}. Клік - зупинити`);
+  if (msg.type === "toggle") toggle(msg.tabId);
+  if (msg.type === "mic") {
+    chrome.storage.session.set({ mic: msg.on });
+    // Сеанс іде - перемикаємо в службі; ні - запам'ятали на старт.
+    chrome.runtime.sendMessage({ target: "offscreen", type: "mic", on: msg.on }).catch(() => {});
+  }
+  if (msg.type === "ready") {
+    badge("REC");
+    chrome.storage.session.set({ note: `Сеанс ${msg.id}`, mic: msg.mic });
+  }
+  if (msg.type === "mic_on") chrome.storage.session.set({ mic: msg.on });
   if (msg.type === "stopped") {
-    chrome.storage.session.remove("active");
-    if (msg.reason === "user" || msg.reason === "tab closed") show("", "Почати захоплення вкладки");
-    else show("ERR", `Зупинено: ${msg.reason}. Клік - почати знову`);
+    const ok = msg.reason === "user" || msg.reason === "tab closed";
+    badge(ok ? "" : "ERR");
+    chrome.storage.session.set({ active: null, mic: false, note: ok ? "" : `Зупинено: ${msg.reason}` });
   }
 });
