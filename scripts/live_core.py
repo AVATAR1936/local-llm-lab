@@ -17,6 +17,8 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 MODELS = {"turbo": "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
           "large": "Systran/faster-whisper-large-v3"}
 _models = {}
+LABELS = {"me": "[я]", "them": "[інші]"}
+PHRASE_GAP = 0.8   # пауза, що закінчує фразу, с; на око, перевірено одним прогоном
 _models_lock = threading.Lock()
 
 
@@ -81,7 +83,9 @@ class LiveSession:
         self._stop = threading.Event()
         self._thread = None
         self.src = self.mic_src = None
-        self.proc = None
+        self.proc = self.mic_proc = None
+        self.mic_fed = 0
+        self.mic_cycles = []
         self.wav = cfg.rec_dir / f"{self.id}-out.wav"
         self.mic_wav = cfg.rec_dir / f"{self.id}-mic.wav"
 
@@ -94,28 +98,48 @@ class LiveSession:
                 "lag_s": round(wall - self.fed / SR, 1) if self.t0 else 0.0,
                 "buffer_s": round(len(self.proc.audio) / SR, 1) if self.proc else 0.0,
                 "words": len(self.words), "mic": self.cfg.mic,
+                "mic_words": sum(w["who"] == "me" for w in self.words),
+                "mic_buffer_s": round(len(self.mic_proc.audio) / SR, 1) if self.mic_proc else 0.0,
                 "cycle_median_s": round(statistics.median(self.cycles), 2) if self.cycles else None,
                 "forced_trims": self.proc.forced if self.proc else 0,
                 "seams": self.proc.seams if self.proc else 0}
 
     def text(self):
-        return "".join(w["word"] for w in self.words).strip()
+        if not self.cfg.mic:
+            return "".join(w["word"] for w in self.words).strip()
+        return merge_tracks(self.words)
+
+    def mic_shift(self):
+        """Na skil'ky nul' mikrofona piznishe za nul' osnovnoyi dorizhky, s."""
+        if self.src and self.mic_src and self.src.t_origin and self.mic_src.t_origin:
+            return self.mic_src.t_origin - self.src.t_origin
+        return 0.0
+
+    def _publish(self, out, who, now):
+        shift = self.mic_shift() if who == "me" else 0.0
+        ws = [{"start": round(b + shift, 2), "end": round(e + shift, 2), "word": t,
+               "who": who, "at": round(now, 2)} for b, e, t in out]
+        if ws:
+            self.words.extend(ws)
+            self.on_words(ws)
 
     # -- життєвий цикл
     def start(self):
         self.status = "loading"
         self.on_event("status", self.status)
         model = load_model(self.cfg.model)
-        self.proc = OnlineASRProcessor(make_transcribe(model, self.cfg.vad),
-                                       trim_sec=self.cfg.trim, use_prompt=self.cfg.prompt,
-                                       max_sec=self.cfg.max_sec)
+        transcribe = make_transcribe(model, self.cfg.vad)
+        self.proc = OnlineASRProcessor(transcribe, trim_sec=self.cfg.trim,
+                                       use_prompt=self.cfg.prompt, max_sec=self.cfg.max_sec)
         self.src = asrc.ProcessLoopback(
             name=None if self.cfg.pid else self.cfg.target, pid=self.cfg.pid or None,
             wav_path=self.wav, on_event=self._src_event)
         self.src.start()
         if self.cfg.mic:
-            # Мікрофон поки лише пишеться другою доріжкою: зводити його з
-            # основною за таймкодами - окремий крок, ще не зроблений.
+            # Та сама модель, окремий процесор: у кожної доріжки свій буфер і
+            # своє підтвердження, а розпізнаються вони по черзі в одному потоці.
+            self.mic_proc = OnlineASRProcessor(transcribe, trim_sec=self.cfg.trim,
+                                               use_prompt=self.cfg.prompt, max_sec=self.cfg.max_sec)
             self.mic_src = asrc.MicSource(wav_path=self.mic_wav, on_event=self._src_event)
             self.mic_src.start()
         self.status = "running"
@@ -131,7 +155,7 @@ class LiveSession:
 
     def _worker(self):
         self.t0 = time.perf_counter()
-        pending = []
+        pending, mic_pending = [], []
         try:
             while not self._stop.is_set():
                 if self.cfg.seconds and time.perf_counter() - self.t0 > self.cfg.seconds:
@@ -149,12 +173,18 @@ class LiveSession:
                 c0 = time.perf_counter()
                 out = self.proc.process_iter()
                 self.cycles.append(time.perf_counter() - c0)
-                now = time.perf_counter() - self.t0
-                if out:
-                    ws = [{"start": round(b, 2), "end": round(e, 2), "word": t, "at": round(now, 2)}
-                          for b, e, t in out]
-                    self.words.extend(ws)
-                    self.on_words(ws)
+                self._publish(out, "them", time.perf_counter() - self.t0)
+                if self.mic_src:
+                    mic_pending += [arr for _, arr in self.mic_src.blocks(timeout=0)]
+                    m = sum(len(a) for a in mic_pending)
+                    if m >= self.cfg.chunk * SR:
+                        self.mic_proc.insert_audio_chunk(np.concatenate(mic_pending))
+                        mic_pending = []
+                        self.mic_fed += m
+                        c0 = time.perf_counter()
+                        out = self.mic_proc.process_iter()
+                        self.mic_cycles.append(time.perf_counter() - c0)
+                        self._publish(out, "me", time.perf_counter() - self.t0)
         finally:
             if self.status == "running":
                 self.status = "stopping"
@@ -165,11 +195,9 @@ class LiveSession:
             self._thread.join(timeout=10)
         now = (time.perf_counter() - self.t0) if self.t0 else 0.0
         if self.proc:
-            tail = [{"start": round(b, 2), "end": round(e, 2), "word": t, "at": round(now, 2)}
-                    for b, e, t in self.proc.finish()]
-            if tail:
-                self.words.extend(tail)
-                self.on_words(tail)
+            self._publish(self.proc.finish(), "them", now)
+        if self.mic_proc:
+            self._publish(self.mic_proc.finish(), "me", now)
         for s in (self.src, self.mic_src):
             if s:
                 s.stop()
@@ -189,11 +217,47 @@ class LiveSession:
                  "latency_p90_s": round(lat[int(len(lat) * 0.9)], 2),
                  "latency_max_s": round(lat[-1], 2),
                  "wav": str(self.wav), "mic_wav": str(self.mic_wav) if self.cfg.mic else None}
+        if self.cfg.mic:
+            mc = sorted(self.mic_cycles) or [0]
+            stats.update({"mic_shift_s": round(self.mic_shift(), 3),
+                          "mic_audio_s": round(self.mic_fed / SR, 1),
+                          "mic_cycles": len(self.mic_cycles),
+                          "mic_cycle_median_s": round(statistics.median(mc), 2),
+                          "mic_cycle_p90_s": round(mc[int(len(mc) * 0.9)], 2)})
         self.cfg.out_dir.mkdir(parents=True, exist_ok=True)
         (self.cfg.out_dir / f"{self.id}.txt").write_text(self.text() + "\n", encoding="utf-8")
         (self.cfg.out_dir / f"{self.id}.json").write_text(
             json.dumps({"stats": stats, "words": self.words}, ensure_ascii=False, indent=1), encoding="utf-8")
         return stats
+
+
+def merge_tracks(words, gap=PHRASE_GAP):
+    """Dvi dorizhky v odyn tekst z mitkamy movtsya.
+
+    Sortuvaty slova oboh dorizhok razom ne mozhna: na odnochasnomu movlenni
+    vony cherguyut'sya i kozhne slovo staye okremoyu replikoyu. Tomu spochatku
+    kozhna dorizhka zbyrayet'sya u frazy (mezha - pauza dovshe `gap`), a
+    vporyadkovuyut'sya vzhe frazy - za svoyim pochatkom.
+    """
+    phrases = []
+    for who in LABELS:
+        cur = None
+        for w in sorted((w for w in words if w["who"] == who), key=lambda w: w["start"]):
+            # Шматок без пробілу на початку - продовження слова, не рвемо.
+            glued = not w["word"].startswith(" ")
+            if cur and (glued or w["start"] - cur["end"] <= gap):
+                cur["text"] += w["word"]
+                cur["end"] = w["end"]
+            else:
+                cur = {"who": who, "start": w["start"], "end": w["end"], "text": w["word"]}
+                phrases.append(cur)
+    lines = []
+    for p in sorted(phrases, key=lambda p: p["start"]):
+        if lines and lines[-1][0] == p["who"]:
+            lines[-1][1] += p["text"]
+        else:
+            lines.append([p["who"], p["text"]])
+    return "\n".join(f"{LABELS[who]} {text.strip()}" for who, text in lines)
 
 
 def list_runs(out_dir=None):
