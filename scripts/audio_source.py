@@ -123,6 +123,7 @@ class Source:
         self.on_event = on_event or (lambda *a: None)
         self.q = queue.Queue()
         self.samples = 0          # скільки семплів уже випущено назовні
+        self.t_origin = None      # perf_counter() моменту семпла 0: спільний нуль для доріжок
         self._stop = threading.Event()
         self._thread = None
         self._wav = None
@@ -157,12 +158,16 @@ class Source:
                 self.on_event("open_failed", str(e))
                 opened = None
             if opened is None:
+                if self.t_origin is None:
+                    self.t_origin = t0            # стрічка почалася з тиші
                 self._stop.wait(1.0)
                 self._pad(time.perf_counter() - t0)   # пауза теж частина стрічки
                 continue
             client, cap, ev = opened
             client.Start()
             t_last = time.perf_counter()
+            if self.t_origin is None:
+                self.t_origin = t_last
             try:
                 while not self._stop.is_set():
                     wl._k32.WaitForSingleObject(ev, 200)
