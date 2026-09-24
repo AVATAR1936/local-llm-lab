@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Local Cluster: звук вкладки",
-  "version": "0.3",
+  "version": "0.4",
   "description": "Захоплює звук однієї вкладки (Meet) для локального розпізнавання.",
   "permissions": ["tabCapture", "offscreen", "storage"],
   "background": { "service_worker": "background.js" },

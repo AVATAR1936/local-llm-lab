@@ -16,14 +16,15 @@ async function ensureOffscreen() {
   });
 }
 
-// Значок показує стан: "..." - служба вантажить модель, REC - звук іде,
+// Значок показує стан: "..." - служба вантажить модель, REC - лише запис,
+// TXT - запис з текстом,
 // ERR - сеанс обірвався не з волі користувача (причина - у вікні).
 async function badge(text, color = "#b00") {
   await chrome.action.setBadgeText({ text });
   await chrome.action.setBadgeBackgroundColor({ color });
 }
 
-async function toggle(tabId) {
+async function toggle(tabId, transcribe) {
   const { active, mic } = await chrome.storage.session.get(["active", "mic"]);
   if (active) {
     await chrome.runtime.sendMessage({ target: "offscreen", type: "stop" });
@@ -35,20 +36,21 @@ async function toggle(tabId) {
   const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tabId });
   await chrome.storage.session.set({ active: tabId, note: "Служба готується" });
   await badge("...", "#888");
-  await chrome.runtime.sendMessage({ target: "offscreen", type: "start", streamId, mic: !!mic });
+  await chrome.runtime.sendMessage({ target: "offscreen", type: "start", streamId, mic: !!mic,
+                                     transcribe: !!transcribe });
 }
 
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg.target !== "background") return;
-  if (msg.type === "toggle") toggle(msg.tabId);
+  if (msg.type === "toggle") toggle(msg.tabId, msg.transcribe);
   if (msg.type === "mic") {
     chrome.storage.session.set({ mic: msg.on });
     // Сеанс іде - перемикаємо в службі; ні - запам'ятали на старт.
     chrome.runtime.sendMessage({ target: "offscreen", type: "mic", on: msg.on }).catch(() => {});
   }
   if (msg.type === "ready") {
-    badge("REC");
-    chrome.storage.session.set({ note: `Сеанс ${msg.id}`, mic: msg.mic });
+    badge(msg.transcribe ? "TXT" : "REC");
+    chrome.storage.session.set({ note: `${msg.transcribe ? "Запис + текст" : "Запис"}: ${msg.id}`, mic: msg.mic });
   }
   if (msg.type === "mic_on") chrome.storage.session.set({ mic: msg.on });
   if (msg.type === "stopped") {

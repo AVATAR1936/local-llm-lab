@@ -23,8 +23,8 @@ _models_lock = threading.Lock()
 
 
 def load_model(name):
-    """Model trymayetsya v pam'yati mizh seansamy: zavantazhennya - sekundy,
-    a kartu vona dilyt' z gemma4, tomu druhu kopiyu trymaty ne mozhna."""
+    """Odna kopiya na kartu: kartu model' dilyt' z gemma4. Pislya seansu
+    vyvantazhuyet'sya (unload_model) - mizh parami kartu ne trymaye."""
     with _models_lock:
         if name not in _models:
             add_nvidia_dlls()
@@ -33,6 +33,18 @@ def load_model(name):
             ctranslate2.set_random_seed(0)
             _models[name] = WhisperModel(MODELS[name], device="cuda", compute_type="float16")
         return _models[name]
+
+
+def unload_model(name):
+    """Pislya del + gc karta povertaye vse: zamir - 2243 MB do, 4 MB pislya.
+    Ni kesh CTranslate2, ni kontekst CUDA pam'yat' ne trymayut'."""
+    import gc
+    with _models_lock:
+        m = _models.pop(name, None)
+        if m is not None:
+            m.model.unload_model()
+            del m
+            gc.collect()
 
 
 def make_transcribe(model, vad):
@@ -53,8 +65,9 @@ def make_transcribe(model, vad):
 class Config:
     def __init__(self, target="chrome.exe", pid=0, model="turbo", chunk=1.0, trim=15.0,
                  max_sec=30.0, vad=True, prompt=True, mic=False,
-                 rec_dir=None, out_dir=None, seconds=0.0, source="process"):
+                 rec_dir=None, out_dir=None, seconds=0.0, source="process", transcribe=True):
         self.source = source    # "process" - WASAPI процесу, "tab" - розширення Chrome
+        self.transcribe = transcribe   # False - лише запис: модель не вантажиться зовсім
         self.target, self.pid, self.model = target, pid, model
         self.chunk, self.trim, self.max_sec = chunk, trim, max_sec
         self.vad, self.prompt, self.mic = vad, prompt, mic
@@ -88,6 +101,7 @@ class LiveSession:
         self.mic_fed = 0
         self.mic_cycles = []
         self.mic_on = False
+        self._kept = {}     # лічильники процесора, що переживають вивантаження моделі
         self._transcribe = None
         self._mic_lock = threading.Lock()
         self.wav = cfg.rec_dir / f"{self.id}-out.wav"
@@ -98,6 +112,7 @@ class LiveSession:
         wall = (time.perf_counter() - self.t0) if self.t0 else 0.0
         target = "tab" if self.cfg.source == "tab" else (self.cfg.pid or self.cfg.target)
         return {"id": self.id, "status": self.status, "target": target,
+                "transcribe": self.cfg.transcribe,
                 "attached_pid": self.attached_pid, "model": self.cfg.model,
                 "wall_s": round(wall, 1), "audio_s": round(self.fed / SR, 1),
                 "lag_s": round(wall - self.fed / SR, 1) if self.t0 else 0.0,
@@ -106,8 +121,8 @@ class LiveSession:
                 "mic_words": sum(w["who"] == "me" for w in self.words),
                 "mic_buffer_s": round(len(self.mic_proc.audio) / SR, 1) if self.mic_proc else 0.0,
                 "cycle_median_s": round(statistics.median(self.cycles), 2) if self.cycles else None,
-                "forced_trims": self.proc.forced if self.proc else 0,
-                "seams": self.proc.seams if self.proc else 0}
+                "forced_trims": self.proc.forced if self.proc else self._kept.get("forced", 0),
+                "seams": self.proc.seams if self.proc else self._kept.get("seams", 0)}
 
     def text(self):
         if not self.mic_src:
@@ -132,10 +147,11 @@ class LiveSession:
     def start(self):
         self.status = "loading"
         self.on_event("status", self.status)
-        model = load_model(self.cfg.model)
-        self._transcribe = make_transcribe(model, self.cfg.vad)
-        self.proc = OnlineASRProcessor(self._transcribe, trim_sec=self.cfg.trim,
-                                       use_prompt=self.cfg.prompt, max_sec=self.cfg.max_sec)
+        if self.cfg.transcribe:
+            model = load_model(self.cfg.model)
+            self._transcribe = make_transcribe(model, self.cfg.vad)
+            self.proc = OnlineASRProcessor(self._transcribe, trim_sec=self.cfg.trim,
+                                           use_prompt=self.cfg.prompt, max_sec=self.cfg.max_sec)
         if self.cfg.source == "tab":
             self.src = asrc.TabSource(wav_path=self.wav, on_event=self._src_event)
         else:
@@ -158,8 +174,9 @@ class LiveSession:
                 # Та сама модель, окремий процесор: у кожної доріжки свій буфер
                 # і своє підтвердження, а розпізнаються вони по черзі в одному
                 # потоці. Процесор - раніше за джерело: цикл дивиться на mic_src.
-                self.mic_proc = OnlineASRProcessor(self._transcribe, trim_sec=self.cfg.trim,
-                                                   use_prompt=self.cfg.prompt, max_sec=self.cfg.max_sec)
+                if self.cfg.transcribe:
+                    self.mic_proc = OnlineASRProcessor(self._transcribe, trim_sec=self.cfg.trim,
+                                                       use_prompt=self.cfg.prompt, max_sec=self.cfg.max_sec)
                 self.mic_src = asrc.MicSource(wav_path=self.mic_wav, on_event=self._src_event)
                 self.mic_src.start()
             elif on:
@@ -175,8 +192,27 @@ class LiveSession:
             self.attached_pid = value
         self.on_event(kind, value)
 
+    def _record_only(self):
+        """Lyshe zapys: dzherela vzhe pyshut' fajly samy, tut - vybyraty cherhy,
+        inakshe vony rostut' u pam'yati vsyu paru."""
+        while not self._stop.is_set():
+            if self.cfg.seconds and time.perf_counter() - self.t0 > self.cfg.seconds:
+                break
+            for _, arr in self.src.blocks(timeout=0.2):
+                self.fed += len(arr)
+            if self.mic_src:
+                for _, arr in self.mic_src.blocks(timeout=0):
+                    self.mic_fed += len(arr)
+
     def _worker(self):
         self.t0 = time.perf_counter()
+        if not self.cfg.transcribe:
+            try:
+                self._record_only()
+            finally:
+                if self.status == "running":
+                    self.status = "stopping"
+            return
         pending, mic_pending, mic_next = [], [], 0
         try:
             while not self._stop.is_set():
@@ -237,6 +273,12 @@ class LiveSession:
                 s.stop()
         self.status = "done"
         stats = self.finalize()
+        if self.cfg.transcribe:
+            # Посилання на модель тримають процесори через transcribe - без
+            # них вивантаження звільнило б ваги, але об'єкт жив би далі.
+            self._kept = {"forced": self.proc.forced, "seams": self.proc.seams}
+            self.proc = self.mic_proc = self._transcribe = None
+            unload_model(self.cfg.model)
         self.on_event("status", self.status)
         return stats
 

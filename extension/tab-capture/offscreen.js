@@ -12,7 +12,7 @@ let ready = false, batch = new Float32Array(BATCH), fill = 0;
 
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg.target !== "offscreen") return;
-  if (msg.type === "start") start(msg.streamId, msg.mic).catch((e) => fail(String(e)));
+  if (msg.type === "start") start(msg.streamId, msg.mic, msg.transcribe).catch((e) => fail(String(e)));
   if (msg.type === "stop") stop("user");
   if (msg.type === "mic" && ready) sock.send(JSON.stringify({ type: "mic", on: msg.on }));
 });
@@ -40,12 +40,15 @@ function push(block) {
   }
 }
 
-async function start(streamId, mic) {
-  sock = new WebSocket(`${SERVICE}?mic=${mic ? 1 : 0}`);
+async function start(streamId, mic, transcribe) {
+  sock = new WebSocket(`${SERVICE}?mic=${mic ? 1 : 0}&transcribe=${transcribe ? 1 : 0}`);
   sock.binaryType = "arraybuffer";
   sock.onmessage = (e) => {
     const m = JSON.parse(e.data);
-    if (m.type === "ready") { ready = true; report("ready", { id: m.id, mic: m.mic }); }
+    if (m.type === "ready") {
+      ready = true;
+      report("ready", { id: m.id, mic: m.mic, transcribe: m.transcribe });
+    }
     if (m.type === "mic") report("mic_on", { on: m.on });
   };
   sock.onclose = (e) => { if (stream) fail(`service closed: ${e.code} ${e.reason}`); };

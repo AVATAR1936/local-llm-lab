@@ -29,12 +29,14 @@ def main():
     ap.add_argument("--no-prompt", action="store_true")
     ap.add_argument("--rec-dir", default=None)
     ap.add_argument("--out-dir", default=None)
+    ap.add_argument("--record-only", action="store_true", help="write tracks, no recognition, no GPU")
     args = ap.parse_args()
 
     cfg = live_core.Config(target=args.target, pid=args.pid, model=args.model, chunk=args.chunk,
                            trim=args.trim, max_sec=args.max_sec, vad=not args.no_vad,
                            prompt=not args.no_prompt, mic=args.mic,
-                           rec_dir=args.rec_dir, out_dir=args.out_dir, seconds=args.seconds)
+                           rec_dir=args.rec_dir, out_dir=args.out_dir, seconds=args.seconds,
+                           transcribe=not args.record_only)
 
     def on_words(ws):
         s = session.state()

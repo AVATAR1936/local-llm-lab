@@ -49,6 +49,7 @@ class StartBody(BaseModel):
     vad: bool = True
     prompt: bool = True
     seconds: float = 0.0
+    transcribe: bool = True     # False - лише запис, модель не вантажиться
 
 
 @app.on_event("startup")
@@ -98,7 +99,8 @@ def live_start(body: StartBody):
 
 
 @app.websocket("/api/live/tab")
-async def live_tab(ws: WebSocket, model: str = "turbo", mic: bool = False):
+async def live_tab(ws: WebSocket, model: str = "turbo", mic: bool = False,
+                   transcribe: bool = True):
     """Seans vid rozshyrennya: pidkluchennya - pochatok, rozryv - kinets'.
 
     Rozshyrennya shle zvuk lyshe pislya "ready": pershyj seans vantazhyt'
@@ -110,14 +112,15 @@ async def live_tab(ws: WebSocket, model: str = "turbo", mic: bool = False):
     if _lock.acquire(blocking=False):
         try:
             if not _busy():
-                cfg = live_core.Config(source="tab", model=model, mic=mic)
+                cfg = live_core.Config(source="tab", model=model, mic=mic, transcribe=transcribe)
                 sess = await asyncio.to_thread(_open_session, cfg)
         finally:
             _lock.release()
     if sess is None:
         await ws.close(code=1013, reason="session already running")
         return
-    await ws.send_text(json.dumps({"type": "ready", "id": sess.id, "mic": sess.mic_on}))
+    await ws.send_text(json.dumps({"type": "ready", "id": sess.id, "mic": sess.mic_on,
+                                   "transcribe": sess.cfg.transcribe}))
     try:
         while True:
             msg = await ws.receive()
