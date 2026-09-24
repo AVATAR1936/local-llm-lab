@@ -13,7 +13,10 @@ Kroky:
      same stverdzhuye (odnym ryadkom, chysla - yak u rechenni);
   3. section() - rozdil iz pravyl, z tajmkodamy.
 """
-import collections, json, re, urllib.request
+import collections, json, os, re, sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import llm
 
 # Кількісні числівники словом. Порядкові ("перша атестація") навмисно ні:
 # вони дають "по-перше", "на першому курсі" і майже не несуть правил.
@@ -54,9 +57,6 @@ def mentions(transcript):
     return out
 
 
-MODEL = "gemma4:12b"
-OPTIONS = {"num_ctx": 32768, "temperature": 0.2, "top_p": 0.9, "top_k": 40,
-           "repeat_penalty": 1.0, "num_predict": 6000}
 
 CLASSIFY_PROMPT = """Нижче - пронумеровані речення зі стенограми лекції. У кожному є число (цифрами або словом).
 Розклади їх на два списки:
@@ -79,12 +79,7 @@ BATCH = 120          # речень на виклик: довга пара не 
 
 
 def _ask(prompt, seed):
-    body = {"model": MODEL, "prompt": prompt, "stream": False, "think": False, "format": SCHEMA,
-            "options": {**OPTIONS, "seed": seed}}
-    req = urllib.request.Request("http://localhost:11434/api/generate",
-                                 data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
-                                 headers={"Content-Type": "application/json; charset=utf-8"})
-    return json.load(urllib.request.urlopen(req, timeout=1800))
+    return llm.ask(prompt, seed=seed, predict=6000, fmt=SCHEMA)
 
 
 def _render(items):
