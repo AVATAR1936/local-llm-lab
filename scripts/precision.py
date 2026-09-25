@@ -21,10 +21,18 @@ LABELS = ROOT / "data" / "precision-labels.tsv"
 SHEETS = ROOT / "out" / "numbers" / "precision"      # з іменами - у git не йде
 
 PAIRS = {
-    "l1":   "out/numbers/extract__t0.2__s*.json",
-    "l2":   "out/numbers/l2__extract__t0.2__s*.json",
-    "math": "out/numbers/math_2pass_s1.json",
+    "l1":       "out/numbers/extract__t0.2__s*.json",
+    "l2":       "out/numbers/l2__extract__t0.2__s*.json",
+    "math":     "out/numbers/math_2pass_s1.json",
+    # Той самий шар, але лише в організаційних вікнах пари (--org).
+    "l1-org":   "out/numbers/org__extract__t0.2__s*.json",
+    "l2-org":   "out/numbers/l2__org__extract__t0.2__s*.json",
+    "math-org": "out/numbers/math_2pass_org_s1.json",
 }
+
+# Мітки спільні: вужчий прогін дає підмножину тих самих речень, і розмічати
+# їх удруге означало б дозволити собі поставити іншу межу під результат.
+LABEL_OF = {k: k.replace("-org", "") for k in PAIRS}
 
 
 def key(ts, text):
@@ -81,16 +89,16 @@ HEAD = """# Розмітка точності розділу «Важливе» 
 
 def sheet(pair):
     rs, seeds = rows(pair)
-    old = load_labels()
+    old = {k: m for (p, k), m in load_labels().items() if p == LABEL_OF[pair]}
     SHEETS.mkdir(parents=True, exist_ok=True)
     path = SHEETS / f"{pair}.txt"
     lines = [HEAD.format(pair=pair, n=len(rs), seeds=seeds)]
     for k, r in sorted(rs.items(), key=lambda kv: (kv[1]["ts"], kv[0])):
         kind = "+".join(sorted(r["kinds"]))
-        lines.append(f"{old.get((pair, k), '')}\t{k}\t{r['n']}/{seeds}\t{kind}\t"
+        lines.append(f"{old.get(k, '')}\t{k}\t{r['n']}/{seeds}\t{kind}\t"
                      f"{r['fact']}\t||\t{r['text']}")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    marked = sum(1 for k in rs if old.get((pair, k)))
+    marked = sum(1 for k in rs if old.get(k))
     print(f"{path}: {len(rs)} rows, {marked} already marked")
 
 
@@ -130,7 +138,7 @@ def scoreboard(csv_path):
             good = bad = dup = unknown = 0
             for x in items:
                 if x.get("kind") in ("правило", "завдання") and x.get("fact"):
-                    m = labels.get((pair, key(x["ts"], x["text"])))
+                    m = labels.get((LABEL_OF[pair], key(x["ts"], x["text"])))
                     good += m == "+"
                     bad += m == "-"
                     dup += m == "="
@@ -165,7 +173,7 @@ def main():
     if a.sheet:
         sheet(a.sheet)
     elif a.collect:
-        save_labels({(a.collect, k): m for k, m in collect(a.collect).items()})
+        save_labels({(LABEL_OF[a.collect], k): m for k, m in collect(a.collect).items()})
     else:
         scoreboard(a.csv)
 

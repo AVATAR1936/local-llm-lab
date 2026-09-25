@@ -14,7 +14,7 @@ results/numbers_<data>.csv (lyshe id faktiv i 0/1).
 import argparse, csv, json, pathlib, re, sys, time, urllib.request
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-import protocol_numbers
+import protocol_numbers, protocol_chapters
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 TRANSCRIPT = ROOT / "data" / "transcripts" / "lecture_long_65min.txt"
@@ -175,12 +175,16 @@ def main():
     ap.add_argument("--csv", default=str(ROOT / "results" / f"numbers_{time.strftime('%Y-%m-%d')}.csv"))
     ap.add_argument("--rescore", action="store_true", help="only rescore saved outputs")
     ap.add_argument("--lecture", type=int, default=1, choices=[1, 2])
+    ap.add_argument("--org", action="store_true",
+                    help="шукати лише в організаційних вікнах пари (вікна + describe + org_windows)")
     args = ap.parse_args()
 
     global FACTS
     src, pre = TRANSCRIPT, ""
     if args.lecture == 2:
         FACTS, src, pre = FACTS_2, TRANSCRIPT_2, "l2__"
+    if args.org:
+        pre += "org__"
         if args.csv.endswith(f"numbers_{time.strftime('%Y-%m-%d')}.csv"):
             args.csv = args.csv.replace("numbers_", "numbers_l2_")
     OUT.mkdir(parents=True, exist_ok=True)
@@ -206,7 +210,22 @@ def main():
             elif args.variant == "extract":
                 # Числа знаходить код, модель лише класифікує кожне речення.
                 ms = protocol_numbers.mentions(transcript)
+                org_st = None
+                if args.org:
+                    # Шар шукає лише в організаційних відрізках пари: замір
+                    # точності показав, що в предметних його майже немає.
+                    wins = protocol_chapters.windows(transcript)
+                    desc, dst = protocol_chapters.describe(wins, seed)
+                    org, ost = protocol_chapters.org_windows(wins, desc, seed)
+                    rng = protocol_chapters.org_ranges(wins, org, transcript)
+                    ms_all, ms = ms, protocol_numbers.within(ms, rng)
+                    org_st = {"windows": len(wins), **ost, "describe": dst,
+                              "cand_before": len(ms_all), "cand_after": len(ms)}
+                    print(f"  org {len(org)}/{len(wins)} вікон, кандидатів "
+                          f"{len(ms_all)} -> {len(ms)}", flush=True)
                 got, st = protocol_numbers.classify(ms, seed)
+                if org_st:
+                    st["org"] = org_st
                 text = protocol_numbers.section(ms, got)
                 meta = {"out_tokens": st["out_tokens"], "tps": ""}
                 path.write_text(text, encoding="utf-8")

@@ -49,6 +49,17 @@ def _norm_apos(t):
     return t.replace("’", "'").replace("ʼ", "'")
 
 
+def _secs(ts):
+    h, m, s = (int(x) for x in ts.split(":"))
+    return h * 3600 + m * 60 + s
+
+
+def within(ms, ranges):
+    """Kandydaty, tajmkod yakykh potrapyv u odyn z vidrizkiv. Id ne
+    perenumerovuyut'sya: etalon tochnosti trymayet'sya za tajmkod i tekst."""
+    return [m for m in ms if any(a <= _secs(m["ts"]) < b for a, b in ranges)]
+
+
 def mentions(transcript):
     """[{id, ts, text, prev}] - rechennya z chyslamy. Shapka fajlu (rядky z #)
     - ne stenohrama: tam model' rozpiznavannya i chas obrobky."""

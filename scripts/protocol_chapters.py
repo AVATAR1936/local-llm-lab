@@ -219,6 +219,55 @@ def group(wins, got, seed=42):
     return ans.get("title_all", ""), starts, stats
 
 
+# --- організаційні вікна: де взагалі має сенс шукати "Важливе" ------------
+# Замір 2026-09-25: точність розділу 0.82 на організаційній парі, 0.16 на
+# предметній, 0.06 на математиці - при повноті 26/28 і 12-13/14. Усі 13
+# потрібних рядків лекції 2 лежать у перших п'ятнадцяти хвилинах. Отже
+# "важливе" - властивість відрізка пари, не окремого речення.
+#
+# Окремим проходом, а не полем у WIN_SCHEMA: describe() - умова, на якій
+# зміряно глави (5-9 розділів, діапазони 9/9, F1 0.62-0.93). Нове поле
+# змінило б її, і замір глав довелося б повторювати.
+ORG_PROMPT = """Нижче - підзаголовки й пункти пронумерованих вікон одного заняття, по порядку.
+Розклади номери вікон на два списки:
+- material - вікна, де йдеться про сам предмет: пояснення, означення, приклади, обчислення, розбір задач, історія питання, стандарти й документи як матеріал, міркування викладача про галузь.
+- org - вікна, де йдеться про те, як влаштоване навчання: розклад і час занять, бали й оцінювання, атестації та залік, кількість і строки робіт, вимоги до оформлення й здачі, перездачі, що саме студентам треба зробити.
+
+Кожен номер - рівно в одному зі списків. Вікно, де є і матеріал, і організація, - в org.
+
+ВІКНА:
+"""
+
+# Порядок полів: material першим. На математичній парі поле, яке стоїть у
+# схемі першим, модель починає перелічувати й не спиняється - тому першим
+# стоїть той список, який і має бути довгим.
+ORG_SCHEMA = {"type": "object", "required": ["material", "org"], "properties": {
+    "material": {"type": "array", "items": {"type": "integer"}},
+    "org": {"type": "array", "items": {"type": "integer"}}}}
+
+
+def org_windows(wins, got, seed=42):
+    """({id vikon pro organizaciyu}, stats). Vikno, pro yake model' promovchala,
+    vvazhayet'sya organizacijnym: propustyty pravylo hirshe, nizh pustyty smittya."""
+    text = "\n".join(f"[{w['id']}] ({w['start']}) {got.get(w['id'], {}).get('subtitle', '')}: "
+                     + "; ".join(got.get(w["id"], {}).get("points", [])) for w in wins)
+    r = llm.ask(ORG_PROMPT + text, seed=seed, predict=2000, fmt=ORG_SCHEMA)
+    ans = json.loads(r["response"])
+    ids = {w["id"] for w in wins}
+    mat = {i for i in ans.get("material", []) if i in ids}
+    org = {i for i in ans.get("org", []) if i in ids} | (ids - mat - set(ans.get("org", [])))
+    return org, {"out_tokens": r.get("eval_count"), "seconds": round(r.get("total_duration", 0) / 1e9, 1),
+                 "org": sorted(org), "material": sorted(mat), "silent": sorted(ids - mat - set(ans.get("org", [])))}
+
+
+def org_ranges(wins, org, transcript):
+    """[(pochatok, kinec) u sekundakh] - vidrizky, nakryti organizacijnymy
+    viknamy. Kinec vikna - pochatok nastupnoho, u poslednioho - kinec pary."""
+    end = max([secs(t) for t in TS.findall(body(transcript))] or [0]) + 1
+    bounds = [secs(w["start"]) for w in wins] + [end]
+    return [(bounds[i], bounds[i + 1]) for i, w in enumerate(wins) if w["id"] in org]
+
+
 def assemble(title, wins, got, starts):
     """Rozdily - z group(); pidrozdily - sami vikna."""
     first = dict(starts)
