@@ -34,11 +34,20 @@ PAIRS = {
     # Третя пара з правилами, шару не знайома (знайдена перебором).
     "l3":       "out/numbers/l3__extract__t0.2__s*.json",
     "l3-org":   "out/numbers/l3__org__extract__t0.2__s*.json",
+    # Те саме плюс захоплення 60 с за межею вікна (--margin 60): блок не
+    # вирівняний по сітці 5 хв, і вікно з його хвостом модель кличе матеріалом.
+    "l1-org60":   "out/numbers/org60__extract__t0.2__s*.json",
+    "l2-org60":   "out/numbers/l2__org60__extract__t0.2__s*.json",
+    "l3-org60":   "out/numbers/l3__org60__extract__t0.2__s*.json",
+    # Математика через скрипт, а не руками: старі math_2pass_* були зроблені
+    # разово, і умову того прогону (які вікна, який захват) відтворити нічим.
+    "math-org0":  "out/numbers/math__org__extract__t0.2__s*.json",
+    "math-org60": "out/numbers/math__org60__extract__t0.2__s*.json",
 }
 
 # Мітки спільні: вужчий прогін дає підмножину тих самих речень, і розмічати
 # їх удруге означало б дозволити собі поставити іншу межу під результат.
-LABEL_OF = {k: k.replace("-org", "") for k in PAIRS}
+LABEL_OF = {k: re.sub(r"-org\d*$", "", k) for k in PAIRS}
 
 
 def key(ts, text):

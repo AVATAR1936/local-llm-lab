@@ -25,6 +25,10 @@ TRANSCRIPT_2 = ROOT / "out" / "asr" / "whisper-large-v3+fb+vad-p260210.txt"
 # Третя - знайдена перебором, шару не знайома: єдина перевірка повноти на
 # даних, під які її не настроювали.
 TRANSCRIPT_3 = ROOT / "out" / "asr" / "whisper-large-v3+fb+vad-p250205org.txt"
+# Математична пара: правил курсу в ній немає, тому еталон повноти порожній -
+# вона міряє лише точність (503 кандидати). Раніше її прогін робився руками
+# й імена виходили свої (math_2pass_org_s1.json), відтворити його було нічим.
+TRANSCRIPT_4 = ROOT / "out" / "asr" / "whisper-large-v3+fb+vad-p0206.txt"
 MODEL = "gemma4:12b"
 
 # Той самий промпт, що в раундах 0.6-0.8 (verify.ps1), дослівно.
@@ -226,9 +230,12 @@ def main():
     ap.add_argument("--predict", type=int, default=3000)
     ap.add_argument("--csv", default=str(ROOT / "results" / f"numbers_{time.strftime('%Y-%m-%d')}.csv"))
     ap.add_argument("--rescore", action="store_true", help="only rescore saved outputs")
-    ap.add_argument("--lecture", type=int, default=1, choices=[1, 2, 3])
+    ap.add_argument("--lecture", type=int, default=1, choices=[1, 2, 3, 4])
     ap.add_argument("--org", action="store_true",
                     help="шукати лише в організаційних вікнах пари (вікна + describe + org_windows)")
+    ap.add_argument("--margin", type=int, default=0,
+                    help="секунд захоплення за межею організаційного вікна (0 - умова, "
+                         "на якій зміряно точність 0.44-0.58)")
     args = ap.parse_args()
 
     global FACTS
@@ -238,10 +245,15 @@ def main():
     elif args.lecture == 3:
         # Дві групи в одному наборі: розділяються префіксом імені H/S при підсумку.
         FACTS, src, pre = {**FACTS_3, **FACTS_3_SOFT}, TRANSCRIPT_3, "l3__"
+    elif args.lecture == 4:
+        FACTS, src, pre = {}, TRANSCRIPT_4, "math__"
     if args.lecture != 1 and args.csv.endswith(f"numbers_{time.strftime('%Y-%m-%d')}.csv"):
-        args.csv = args.csv.replace("numbers_", f"numbers_l{args.lecture}_")
+        tail = "math" if args.lecture == 4 else f"l{args.lecture}"
+        args.csv = args.csv.replace("numbers_", f"numbers_{tail}_")
     if args.org:
-        pre += "org__"
+        # Захоплення за межею - окрема умова, тому й окремі імена виводу:
+        # прогін з margin не має затирати той, на якому зміряно 0.44-0.58.
+        pre += "org__" if not args.margin else f"org{args.margin}__"
     OUT.mkdir(parents=True, exist_ok=True)
     transcript = src.read_text(encoding="utf-8")
     new = not pathlib.Path(args.csv).exists()
@@ -272,9 +284,9 @@ def main():
                     wins = protocol_chapters.windows(transcript)
                     desc, dst = protocol_chapters.describe(wins, seed)
                     org, ost = protocol_chapters.org_windows(wins, desc, seed)
-                    rng = protocol_chapters.org_ranges(wins, org, transcript)
+                    rng = protocol_chapters.org_ranges(wins, org, transcript, args.margin)
                     ms_all, ms = ms, protocol_numbers.within(ms, rng)
-                    org_st = {"windows": len(wins), **ost, "describe": dst,
+                    org_st = {"windows": len(wins), **ost, "describe": dst, "margin": args.margin,
                               "cand_before": len(ms_all), "cand_after": len(ms)}
                     print(f"  org {len(org)}/{len(wins)} вікон, кандидатів "
                           f"{len(ms_all)} -> {len(ms)}", flush=True)
