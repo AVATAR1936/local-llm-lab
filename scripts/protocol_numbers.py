@@ -145,6 +145,27 @@ TASKS_PROMPT = """Нижче - пронумеровані речення зі с
 РЕЧЕННЯ:
 """
 
+# Прохід 3 (пункт (б) плану, маршрут для ORGW). Вхід - лише ті кандидати, яких
+# перші два проходи НЕ бачать: слово організаційної області без числа й без
+# наказу. Тому промпти перших двох лишаються побайтово тими самими, і числа,
+# зміряні на них, не зсуваються.
+#
+# Нащо окремий прохід. Ланцюг утрат (3g плану): на організаційній лекції сім
+# вимог із сімнадцяти не доходять до моделі взагалі, і всі сім саме такі -
+# "ФЄ це екзамен, а у ФБ залік", "ставитиму автоматом", "практикуми можна
+# виконати", "на практикум працюєте самотужки". Питання тут третє й вузьке:
+# не "важливе", не "чи має слухач щось зробити", а "чи названа УМОВА навчання".
+COND_PROMPT = """Нижче - пронумеровані речення зі стенограми заняття. У кожному названо щось із навчального устрою: форма контролю, залік чи екзамен, практикум, лабораторна, звіт, силабус, автомат, перездача, методичка, формат здачі.
+Розклади їх на два списки:
+- rules - речення, з якого видно УМОВУ навчання на цьому курсі: яка форма контролю і в кого саме, чим її можна закрити, скільки й яких робіт, поодинці чи командою вони робляться, як і куди здаються, де лежать матеріали й правила, що дозволено, а чого не вимагають.
+  Для кожного - id і fact: одне коротке твердження українською, що саме є умовою, з числами точно як у реченні. Не округлюй, не обчислюй, не додавай того, чого немає в реченні. Контекст (попереднє речення) - лише щоб зрозуміти, про що мова.
+- background - номери всіх інших речень: пояснення самого предмета, де ці слова означають матеріал ("оцінювання захищеності", "звіт" як документ системи, "практикум" як приклад); згадка, що щось "є в силабусі" чи "під номером у списку джерел", без самої умови; розповіді про минулі роки, інші курси й те, як було раніше; обривки речень, з яких умови не видно; дії викладача, що не стосуються слухача.
+
+Кожен id - рівно в одному зі списків.
+
+РЕЧЕННЯ:
+"""
+
 # "Фон" - лише номер: ~2 токени замість ~15 на повний запис. На математичній
 # парі 461 речення з числами, і повні записи не влазили в ліміт відповіді.
 SCHEMA = {"type": "object", "required": ["background", "rules"], "properties": {
@@ -200,14 +221,22 @@ def _one_pass(items, prompt, seed, retries, stats, batch=None):
 
 
 def classify(ms, seed=42, retries=2, batch=None):
-    """{id: {kind, fact}} z dvokh prokhodiv. Rechennya, de ye i chyslo, i
-    oznaka diyi, jde v oba; "pravylo" perevazhaye - joho formulyuvannya
-    zmiryane, a "zavdannya" - shche ni."""
+    """{id: {kind, fact}} z tr'okh prokhodiv. Rechennya, de ye i chyslo, i
+    oznaka diyi, jde v oba pervykh; "pravylo" perevazhaye - joho formulyuvannya
+    zmiryane, a "zavdannya" - shche ni.
+
+    Tretij prokhid (COND_PROMPT) otrymuye LYSHE kandydativ, yakykh pervi dva ne
+    bachat': slovo organizacijnoyi oblasti bez chysla j bez nakazu. Yakshcho
+    takykh nemaye - a pry mentions(org=False) ikh i ne buvaye - prokhid ne
+    vyklykayet'sya vzahali, i umova starykh zamiriv ne zsuvayet'sya."""
     stats = {"calls": 0, "out_tokens": 0, "seconds": 0.0, "truncated": 0}
     with_num = [m for m in ms if m.get("num")]
     with_task = [m for m in ms if m.get("task")]
+    with_cond = [m for m in ms if m.get("orgw") and not m.get("num") and not m.get("task")]
     rules, miss_r = _one_pass(with_num, RULES_PROMPT, seed, retries, stats, batch)
     tasks, miss_t = _one_pass(with_task, TASKS_PROMPT, seed, retries, stats, batch)
+    conds, miss_c = ({}, []) if not with_cond else \
+        _one_pass(with_cond, COND_PROMPT, seed, retries, stats, batch)
     got = {}
     for m in ms:
         i = m["id"]
@@ -215,15 +244,18 @@ def classify(ms, seed=42, retries=2, batch=None):
             got[i] = {"kind": "правило", "fact": rules[i]}
         elif tasks.get(i):
             got[i] = {"kind": "завдання", "fact": tasks[i]}
+        elif conds.get(i):
+            got[i] = {"kind": "умова", "fact": conds[i]}
         else:
             got[i] = {"kind": "фон", "fact": ""}
     kinds = collections.Counter(g["kind"] for g in got.values())
-    stats.update({"n_num": len(with_num), "n_task": len(with_task),
+    stats.update({"n_num": len(with_num), "n_task": len(with_task), "n_cond": len(with_cond),
                   "n_rules": kinds["правило"], "n_tasks": kinds["завдання"],
-                  "missing_rules": miss_r, "missing_tasks": miss_t,
+                  "n_conds": kinds["умова"],
+                  "missing_rules": miss_r, "missing_tasks": miss_t, "missing_conds": miss_c,
                   # Пропущене хоч в одному проході, куди речення відправляли:
                   # "фон тут, тиша там" - теж утрата, а не відповідь.
-                  "missing_after": sorted(set(miss_r) | set(miss_t))})
+                  "missing_after": sorted(set(miss_r) | set(miss_t) | set(miss_c))})
     return got, stats
 
 

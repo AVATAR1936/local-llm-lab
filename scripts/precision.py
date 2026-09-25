@@ -49,6 +49,13 @@ PAIRS = {
     "l3-org60b20": "out/numbers/l3__org60__b20__extract__t0.2__s*.json",
     "l3-org60b10": "out/numbers/l3__org60__b10__extract__t0.2__s*.json",
     "l3-org60b1":  "out/numbers/l3__org60__b1__extract__t0.2__s*.json",
+    # Третій прохід (--orgw + COND_PROMPT, пункт (б)).
+    "l1-org60w":        "out/numbers/org60__w__extract__t0.2__s*.json",
+    "l2-org60w":        "out/numbers/l2__org60__w__extract__t0.2__s*.json",
+    "l3-org60w":        "out/numbers/l3__org60__w__extract__t0.2__s*.json",
+    "ksi260904-org60w": "out/numbers/ksi260904__org60__w__extract__t0.2__s*.json",
+    "prac2-org60w":     "out/numbers/prac2__org60__w__extract__t0.2__s*.json",
+    "prac4-org60w":     "out/numbers/prac4__org60__w__extract__t0.2__s*.json",
     # Пари з нових записів: еталону повноти немає, міряється лише точність.
     "ksi260904-org60": "out/numbers/ksi260904__org60__extract__t0.2__s*.json",
     "prac2-org60":     "out/numbers/prac2__org60__extract__t0.2__s*.json",
@@ -57,7 +64,7 @@ PAIRS = {
 
 # Мітки спільні: вужчий прогін дає підмножину тих самих речень, і розмічати
 # їх удруге означало б дозволити собі поставити іншу межу під результат.
-LABEL_OF = {k: re.sub(r"-org\d*(b\d+)?$", "", k) for k in PAIRS}
+LABEL_OF = {k: re.sub(r"-org\d*(b\d+)?w?$", "", k) for k in PAIRS}
 
 # Стенограми для розмітки по КАНДИДАТАХ (--cand). Чому не по рядках розділу:
 # рядки - це те, що модель видала, і правильно відкинутого в них немає взагалі.
@@ -97,7 +104,7 @@ def rows(pair):
     out = {}
     for p in files:
         for x in json.load(open(p, encoding="utf-8"))["items"]:
-            if x.get("kind") in ("правило", "завдання") and x.get("fact"):
+            if x.get("kind") in ("правило", "завдання", "умова") and x.get("fact"):
                 r = out.setdefault(key(x["ts"], x["text"]),
                                    {"ts": x["ts"], "text": x["text"], "fact": x["fact"],
                                     "n": 0, "kinds": collections.Counter()})

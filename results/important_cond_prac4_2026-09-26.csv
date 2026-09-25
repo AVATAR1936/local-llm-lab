@@ -1,0 +1,4 @@
+variant,temperature,seed,fact,in_section,in_doc,out_tokens,tps
+extract,0.2,1,_foreign_count,0,0,714,
+extract,0.2,2,_foreign_count,0,0,679,
+extract,0.2,3,_foreign_count,0,0,686,
