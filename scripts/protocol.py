@@ -53,8 +53,11 @@ def transcribe(audio, tag):
     return out
 
 
-def build(transcript, seed=42):
-    """({dani protokolu}, {perevirky}) - use, shcho potribno dlya oboh vydiv."""
+def build(transcript, seed=42, margin=0):
+    """({dani protokolu}, {perevirky}) - use, shcho potribno dlya oboh vydiv.
+
+    margin - sekundy zakhoplennya za mezheyu organizacijnoho vikna, dyv.
+    chapters.org_ranges(): 0 - umova, na yakij zmiryana tochnist' rozdilu."""
     checks, t0 = {}, time.perf_counter()
 
     wins = chapters.windows(transcript)
@@ -76,7 +79,7 @@ def build(transcript, seed=42):
     checks["діапазони без ремонту"] = g_st["valid_before_repair"]
 
     ms = numbers.mentions(transcript)
-    kept = numbers.within(ms, chapters.org_ranges(wins, org, transcript))
+    kept = numbers.within(ms, chapters.org_ranges(wins, org, transcript, margin))
     got, c_st = numbers.classify(kept, seed)
     rows = numbers.section_rows(kept, got)
     checks["кандидатів"] = f"{len(ms)} -> {len(kept)}"
@@ -87,7 +90,7 @@ def build(transcript, seed=42):
     checks["секунд"] = round(time.perf_counter() - t0, 1)
     data = {"title": title or out["title"], "important": rows, "chapters": out["chapters"],
             "windows": [{"id": w["id"], "start": w["start"]} for w in wins],
-            "org": sorted(org), "seed": seed, "checks": checks}
+            "org": sorted(org), "seed": seed, "margin": margin, "checks": checks}
     return data, checks
 
 
@@ -132,6 +135,8 @@ def main():
     ap.add_argument("--audio", help="запис пари; буде розпізнано через asr-run.py")
     ap.add_argument("--tag", default="", help="суфікс імен для --audio, напр. --tag=-p260216")
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--margin", type=int, default=0,
+                    help="секунд захоплення за межею організаційного вікна")
     ap.add_argument("--name", default=None, help="ім'я виводу; типово - ім'я стенограми")
     a = ap.parse_args()
     if not (a.transcript or a.audio):
@@ -142,7 +147,7 @@ def main():
     name = a.name or path.stem
 
     try:
-        data, checks = build(text, a.seed)
+        data, checks = build(text, a.seed, a.margin)
     except llm.ContextOverflow as e:
         sys.exit(f"вікно моделі: {e}")
 

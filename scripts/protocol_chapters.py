@@ -260,12 +260,29 @@ def org_windows(wins, got, seed=42):
                  "org": sorted(org), "material": sorted(mat), "silent": sorted(ids - mat - set(ans.get("org", [])))}
 
 
-def org_ranges(wins, org, transcript):
+def org_ranges(wins, org, transcript, margin=0):
     """[(pochatok, kinec) u sekundakh] - vidrizky, nakryti organizacijnymy
-    viknamy. Kinec vikna - pochatok nastupnoho, u poslednioho - kinec pary."""
+    viknamy. Kinec vikna - pochatok nastupnoho, u poslednioho - kinec pary.
+
+    margin - skil'ky sekund zakhoplyuyet'sya za mezheyu vikna z oboh bokiv.
+    Nashcho: organizacijnyj blok ne vyrivnyanyj po sitci 5 khv, i vikno, u yake
+    vpav joho khvist, model' nazyvaye materialom. Na ksi260904 tak vypaly
+    kandydaty 00:05:05 i 00:05:13 - 0 i 8 sekund za mezheyu vikna 2.
+    Zakhoplennya spivmirne pomylci (desyatky sekund), a ne kroku sitky: "vzyaty
+    susidnye vikno" na tij zhe pari zrobylo b organizacijnymy 13 vikon z 16,
+    tobto znyalo b samu fil'traciyu. margin=0 - umova, na yakij zmiryano
+    tochnist' 0.44-0.58; inshe znachennya - okremyj zamir."""
     end = max([secs(t) for t in TS.findall(body(transcript))] or [0]) + 1
     bounds = [secs(w["start"]) for w in wins] + [end]
-    return [(bounds[i], bounds[i + 1]) for i, w in enumerate(wins) if w["id"] in org]
+    rs = [(max(0, bounds[i] - margin), min(end, bounds[i + 1] + margin))
+          for i, w in enumerate(wins) if w["id"] in org]
+    out = []                          # злиття перетинів: діапазони для звіту, не для within()
+    for a, b in sorted(rs):
+        if out and a <= out[-1][1]:
+            out[-1] = (out[-1][0], max(out[-1][1], b))
+        else:
+            out.append((a, b))
+    return out
 
 
 def assemble(title, wins, got, starts):
