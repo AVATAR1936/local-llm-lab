@@ -17,6 +17,7 @@ import argparse, collections, pathlib, re, subprocess, sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 RECORDS = pathlib.Path(r"E:\Видео\Записи Пар")
+VIDEO = ROOT / "data" / "video"          # доданi 2026-09-25, у git не йдуть
 ASR = ROOT / "out" / "asr"
 TURBO = "whisper-large-v3-turbo+fb+vad"
 MIN_MINUTES = 5.0            # обривки по 0.2-2.3 хв - не пари
@@ -25,6 +26,18 @@ MIN_MINUTES = 5.0            # обривки по 0.2-2.3 хв - не пари
 USED = {"2025-02-04 08-40-38", "2025-02-06 08-35-15", "2026-02-10 10-29-33",
         "2026-02-16 08-38-43", "2026-02-02 09-30-19", "2025-03-27 09-29-20",
         "2026-03-09 08-34-50"}
+
+# Записи з data/video: імена довгі й кириличні, тому мітка задається явно -
+# кирилиця в іменах виводу ламає консоль питона на Windows. Мітка нейтральна
+# і нічого не каже про роль пари: поділ на настройку й перевірку живе в плані.
+EXTRA = {
+    "Комплексні системи захисту інформації_ проектування, впровадження, супровід - 2026_09_04 12_18 EEST - Recording.mp4": "-ksi260904",
+    "заочКомплексні системи захисту інформації_ проектування, впровадження, супровід - 2026_09_07 10_29 EEST - Recording.mp4": "-ksi260907z",
+    "Комплексні системи захисту інформації_ проектування, впровадження, супровід - 2026_09_11 12_14 EEST - Recording.mp4": "-ksi260911",
+    "Практична №1.mp4": "-prac1", "Практична №2.mp4": "-prac2",
+    "Практична №4.mp4": "-prac4", "Практична №5.mp4": "-prac5",
+    "Практична №7.mp4": "-prac7", "Практична №8.mp4": "-prac8",
+}
 
 # Слова, за якими видно тип пари. Найсильніший сигнал правил курсу - бали,
 # атестації, залік, перездачі: саме за ними знайшлася друга лекція з правилами.
@@ -52,19 +65,23 @@ def minutes(path):
 
 
 def records():
+    """[(shlyakh, khvylyn, mitka)] - obydva dzherela razom."""
     out = []
     for f in sorted(RECORDS.iterdir()):
         if f.suffix.lower() not in (".mkv", ".mp4") or f.stem in USED:
             continue
         m = minutes(f)
         if m >= MIN_MINUTES:
-            out.append((f, m))
+            out.append((f, m, stem_tag(f.stem)))
+    if VIDEO.is_dir():
+        for f in sorted(VIDEO.iterdir()):
+            if f.name in EXTRA:
+                out.append((f, minutes(f), EXTRA[f.name]))
     return out
 
 
 def transcribe(files):
-    for i, (f, m) in enumerate(files, 1):
-        tag = stem_tag(f.stem)
+    for i, (f, m, tag) in enumerate(files, 1):
         out = ASR / f"{TURBO}{tag}.txt"
         if out.exists():
             print(f"[{i}/{len(files)}] {f.stem}: вже є", flush=True)
@@ -93,14 +110,14 @@ def where(text, pat):
 
 def table(files):
     rows = []
-    for f, m in files:
-        path = ASR / f"{TURBO}{stem_tag(f.stem)}.txt"
+    for f, m, tag in files:
+        path = ASR / f"{TURBO}{tag}.txt"
         if not path.exists():
             continue
         t = body(path)
         counts = {k: len(re.findall(p, t, re.I)) for k, p in MARKS.items()}
         w = where(t, MARKS["правила"])
-        rows.append((counts["правила"], f.stem, m, counts, w, len(t)))
+        rows.append((counts["правила"], tag.lstrip("-"), m, counts, w, len(t)))
     rows.sort(reverse=True)
     print(f"{'запис':22} {'хв':>6} {'знак':>7}  правила строки  дії задачі  де правила")
     for c, stem, m, counts, w, n in rows:
@@ -116,7 +133,7 @@ def main():
     a = ap.parse_args()
     files = records()
     if a.transcribe:
-        total = round(sum(m for _, m in files) / 60, 1)
+        total = round(sum(m for _, m, _t in files) / 60, 1)
         print(f"записів {len(files)}, разом {total} годин звуку", flush=True)
         transcribe(files)
     table(files)
