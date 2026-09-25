@@ -25,3 +25,6 @@ data/audio/
 
 # Кеш python
 __pycache__/
+
+# Обзор для себя, не для репозитория
+docs/obzor.md
