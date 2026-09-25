@@ -49,6 +49,10 @@ PAIRS = {
     "l3-org60b20": "out/numbers/l3__org60__b20__extract__t0.2__s*.json",
     "l3-org60b10": "out/numbers/l3__org60__b10__extract__t0.2__s*.json",
     "l3-org60b1":  "out/numbers/l3__org60__b1__extract__t0.2__s*.json",
+    # Пари з нових записів: еталону повноти немає, міряється лише точність.
+    "ksi260904-org60": "out/numbers/ksi260904__org60__extract__t0.2__s*.json",
+    "prac2-org60":     "out/numbers/prac2__org60__extract__t0.2__s*.json",
+    "prac4-org60":     "out/numbers/prac4__org60__extract__t0.2__s*.json",
 }
 
 # Мітки спільні: вужчий прогін дає підмножину тих самих речень, і розмічати
@@ -70,6 +74,12 @@ TRANSCRIPTS = {
     "prac4":     "out/asr/whisper-large-v3+fb+vad-prac4.txt",
 }
 SAMPLE_SEED = 20260925        # той самий, що в жеребі поділу набору
+
+# Пари, розмічені по кандидатах (--cand), а не по рядках розділу. Лише для них
+# у знаменнику повноти стоять УСІ вимоги пари, тому лише для них це число
+# означає повноту. Список ведеться руками: він про спосіб розмітки, а не про
+# наявність файлу.
+CAND_LABELLED = {"ksi260904", "prac2", "prac4"}
 
 
 def key(ts, text):
@@ -105,6 +115,21 @@ def load_labels():
             continue
         pair, k, mark = line.split("\t")[:3]
         got[(pair, k)] = mark.strip()
+    return got
+
+
+def load_authors():
+    """{(para, klyuch): khto postavyv}. Chetverta kolonka; staryj fajl bez neyi
+    chytayet'sya yak "m" - do ciyeyi pravky rozmichav lyshe vin."""
+    got = {}
+    if not LABELS.exists():
+        return got
+    for line in LABELS.read_text(encoding="utf-8").splitlines():
+        if not line.strip() or line.startswith("#"):
+            continue
+        f = line.split("\t")
+        if len(f) >= 3:
+            got[(f[0], f[1])] = (f[3].strip() if len(f) > 3 and f[3].strip() else "m")
     return got
 
 
@@ -213,17 +238,21 @@ def collect(pair, cand=False):
     return got
 
 
-def save_labels(new):
-    old = load_labels()
+def save_labels(new, who="m"):
+    old, authors = load_labels(), load_authors()
     old.update(new)
+    authors.update({k: who for k in new})
     LABELS.parent.mkdir(parents=True, exist_ok=True)
     body = ["# Еталон точності розділу «Важливе»: які речення в розділі потрібні.",
-            "# Пара, ключ (таймкод + хеш речення), мітка. Тексту тут немає — імена.",
-            "# Аркуші для розмітки: out/numbers/precision/<пара>.txt (у git не йдуть)."]
+            "# Пара, ключ (таймкод + хеш речення), мітка, автор. Тексту тут немає — імена.",
+            "# Автор: m - він, o - модель (Opus). Числа, які стоять на моїй розмітці, це",
+            "# модель проти моделі, і в журналі це має бути сказано прямо.",
+            "# Аркуші для розмітки: out/numbers/precision/<пара>.cand.txt (у git не йдуть)."]
     for (pair, k), mark in sorted(old.items()):
-        body.append(f"{pair}\t{k}\t{mark}")
+        body.append(f"{pair}\t{k}\t{mark}\t{authors.get((pair, k), 'm')}")
     LABELS.write_bytes(("\n".join(body) + "\n").encode("utf-8"))
-    print(f"{LABELS}: {len(old)} labels")
+    by = collections.Counter(authors.get(k, "m") for k in old)
+    print(f"{LABELS}: {len(old)} labels ({', '.join(f'{a}: {c}' for a, c in sorted(by.items()))})")
 
 
 def scoreboard(csv_path):
@@ -261,17 +290,30 @@ def scoreboard(csv_path):
             # точності - не потрібен: читач бачить той самий факт двічі.
             known = good + bad + dup
             prec = round(good / known, 3) if known else ""
+            # Повнота з тієї самої розмітки: скільки речень, помічених "+",
+            # дійшло до розділу. Має сенс ЛИШЕ для пар, розмічених по
+            # кандидатах (--cand): там знаменник - усі вимоги пари. Для пар,
+            # розмічених по рядках розділу, у знаменнику тільки те, що модель
+            # колись видала, і число вийшло б завищеним - тому "".
+            plus = {k for (pp, k), m in labels.items() if pp == LABEL_OF[pair] and m == "+"}
+            in_rows = {key(by_id[i]["ts"], by_id[i]["text"])
+                       for r in protocol_numbers.section_rows(ms, got) for i in r["ids"]}
+            cand = LABEL_OF[pair] in CAND_LABELLED
             out.append({"pair": pair, "seed": re.search(r"s(\d+)\.json$", p).group(1),
                         "rows": total, "needed": good, "junk": bad, "dup": dup,
-                        "unlabelled": unknown, "mixed": mixed, "precision": prec})
+                        "unlabelled": unknown, "mixed": mixed, "precision": prec,
+                        "plus_total": len(plus) if cand else "",
+                        "plus_found": len(plus & in_rows) if cand else ""})
     with open(csv_path, "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=list(out[0]))
         w.writeheader()
         w.writerows(out)
     for r in out:
-        print(f"{r['pair']:5} s{r['seed']}  rows {r['rows']:3}  need {r['needed']:3}  "
+        print(f"{r['pair']:16} s{r['seed']}  rows {r['rows']:3}  need {r['needed']:3}  "
               f"junk {r['junk']:3}  dup {r['dup']:3}  unlabelled {r['unlabelled']:3}  "
-              f"precision {r['precision']}" + ("  ! mixed %d" % r['mixed'] if r['mixed'] else ""))
+              f"precision {r['precision']}"
+              + (f"  повнота {r['plus_found']}/{r['plus_total']}" if r["plus_total"] != "" else "")
+              + ("  ! mixed %d" % r['mixed'] if r['mixed'] else ""))
     if any(r["unlabelled"] for r in out):
         print("! є нерозмічені рядки - число неповне, зроби --sheet і розміть")
 
@@ -286,13 +328,15 @@ def main():
                     help="аркуш по всіх кандидатах пари, а не по рядках розділу")
     ap.add_argument("--sample", type=int, default=0,
                     help="узяти лише N кандидатів жеребом (для математики: 503 цілком нащо)")
+    ap.add_argument("--who", default="m", choices=["m", "o"],
+                    help="хто поставив мітки: m - він, o - модель")
     ap.add_argument("--csv", default=str(ROOT / "results" / f"precision_{time.strftime('%Y-%m-%d')}.csv"))
     a = ap.parse_args()
     if a.sheet:
         sheet_cand(a.sheet, a.sample) if a.cand else sheet(a.sheet)
     elif a.collect:
         pair = LABEL_OF.get(a.collect, a.collect)
-        save_labels({(pair, k): m for k, m in collect(a.collect, a.cand).items()})
+        save_labels({(pair, k): m for k, m in collect(a.collect, a.cand).items()}, a.who)
     else:
         scoreboard(a.csv)
 

@@ -29,6 +29,13 @@ TRANSCRIPT_3 = ROOT / "out" / "asr" / "whisper-large-v3+fb+vad-p250205org.txt"
 # вона міряє лише точність (503 кандидати). Раніше її прогін робився руками
 # й імена виходили свої (math_2pass_org_s1.json), відтворити його було нічим.
 TRANSCRIPT_4 = ROOT / "out" / "asr" / "whisper-large-v3+fb+vad-p0206.txt"
+# Пари з нових записів: еталон повноти на них не побудований, вони міряють
+# точність по розмітці кандидатів (--pair).
+SOURCES = {
+    "ksi260904": ROOT / "out" / "asr" / "whisper-large-v3+fb+vad-ksi260904.txt",
+    "prac2":     ROOT / "out" / "asr" / "whisper-large-v3+fb+vad-prac2.txt",
+    "prac4":     ROOT / "out" / "asr" / "whisper-large-v3+fb+vad-prac4.txt",
+}
 MODEL = "gemma4:12b"
 
 # Той самий промпт, що в раундах 0.6-0.8 (verify.ps1), дослівно.
@@ -231,6 +238,8 @@ def main():
     ap.add_argument("--csv", default=str(ROOT / "results" / f"numbers_{time.strftime('%Y-%m-%d')}.csv"))
     ap.add_argument("--rescore", action="store_true", help="only rescore saved outputs")
     ap.add_argument("--lecture", type=int, default=1, choices=[1, 2, 3, 4])
+    ap.add_argument("--pair", choices=list(SOURCES),
+                    help="пара з нових записів: еталону повноти немає, міряється точність")
     ap.add_argument("--org", action="store_true",
                     help="шукати лише в організаційних вікнах пари (вікна + describe + org_windows)")
     ap.add_argument("--margin", type=int, default=0,
@@ -251,8 +260,10 @@ def main():
         FACTS, src, pre = {**FACTS_3, **FACTS_3_SOFT}, TRANSCRIPT_3, "l3__"
     elif args.lecture == 4:
         FACTS, src, pre = {}, TRANSCRIPT_4, "math__"
-    if args.lecture != 1 and args.csv.endswith(f"numbers_{time.strftime('%Y-%m-%d')}.csv"):
-        tail = "math" if args.lecture == 4 else f"l{args.lecture}"
+    if args.pair:
+        FACTS, src, pre = {}, SOURCES[args.pair], f"{args.pair}__"
+    if (args.pair or args.lecture != 1) and args.csv.endswith(f"numbers_{time.strftime('%Y-%m-%d')}.csv"):
+        tail = args.pair or ("math" if args.lecture == 4 else f"l{args.lecture}")
         args.csv = args.csv.replace("numbers_", f"numbers_{tail}_")
     if args.org:
         # Захоплення за межею - окрема умова, тому й окремі імена виводу:
