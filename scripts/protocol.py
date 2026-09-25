@@ -135,7 +135,9 @@ def main():
     ap.add_argument("--audio", help="запис пари; буде розпізнано через asr-run.py")
     ap.add_argument("--tag", default="", help="суфікс імен для --audio, напр. --tag=-p260216")
     ap.add_argument("--seed", type=int, default=42)
-    ap.add_argument("--margin", type=int, default=0,
+    # 60 - зміряне значення (3b плану): повнота лекції 1 25.0 -> 26.5/28,
+    # незнайомої лекції 3 H 14.3 -> 15.7/18, ціна точності 0.02.
+    ap.add_argument("--margin", type=int, default=60,
                     help="секунд захоплення за межею організаційного вікна")
     ap.add_argument("--name", default=None, help="ім'я виводу; типово - ім'я стенограми")
     a = ap.parse_args()
