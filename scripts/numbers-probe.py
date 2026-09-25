@@ -236,6 +236,8 @@ def main():
     ap.add_argument("--margin", type=int, default=0,
                     help="секунд захоплення за межею організаційного вікна (0 - умова, "
                          "на якій зміряно точність 0.44-0.58)")
+    ap.add_argument("--orgw", action="store_true",
+                    help="третій критерій відбору: словник організаційного (пункт (б))")
     ap.add_argument("--batch", type=int, default=0,
                     help="речень на виклик; 0 - типове 120 (умова, на якій міряно)")
     args = ap.parse_args()
@@ -258,6 +260,8 @@ def main():
         pre += "org__" if not args.margin else f"org{args.margin}__"
     if args.batch:
         pre += f"b{args.batch}__"
+    if args.orgw:
+        pre += "w__"
     OUT.mkdir(parents=True, exist_ok=True)
     transcript = src.read_text(encoding="utf-8")
     new = not pathlib.Path(args.csv).exists()
@@ -280,7 +284,7 @@ def main():
                 text, meta = path.read_text(encoding="utf-8"), {}
             elif args.variant == "extract":
                 # Числа знаходить код, модель лише класифікує кожне речення.
-                ms = protocol_numbers.mentions(transcript)
+                ms = protocol_numbers.mentions(transcript, org=args.orgw)
                 org_st = None
                 if args.org:
                     # Шар шукає лише в організаційних відрізках пари: замір

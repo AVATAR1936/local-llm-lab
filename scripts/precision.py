@@ -43,11 +43,17 @@ PAIRS = {
     # разово, і умову того прогону (які вікна, який захват) відтворити нічим.
     "math-org0":  "out/numbers/math__org__extract__t0.2__s*.json",
     "math-org60": "out/numbers/math__org60__extract__t0.2__s*.json",
+    # Розмір пачки (--batch): гіпотеза "модель судить відносно пачки".
+    "l1-org60b20": "out/numbers/org60__b20__extract__t0.2__s*.json",
+    "l2-org60b20": "out/numbers/l2__org60__b20__extract__t0.2__s*.json",
+    "l3-org60b20": "out/numbers/l3__org60__b20__extract__t0.2__s*.json",
+    "l3-org60b10": "out/numbers/l3__org60__b10__extract__t0.2__s*.json",
+    "l3-org60b1":  "out/numbers/l3__org60__b1__extract__t0.2__s*.json",
 }
 
 # Мітки спільні: вужчий прогін дає підмножину тих самих речень, і розмічати
 # їх удруге означало б дозволити собі поставити іншу межу під результат.
-LABEL_OF = {k: re.sub(r"-org\d*$", "", k) for k in PAIRS}
+LABEL_OF = {k: re.sub(r"-org\d*(b\d+)?$", "", k) for k in PAIRS}
 
 # Стенограми для розмітки по КАНДИДАТАХ (--cand). Чому не по рядках розділу:
 # рядки - це те, що модель видала, і правильно відкинутого в них немає взагалі.
