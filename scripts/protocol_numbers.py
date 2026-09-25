@@ -203,19 +203,86 @@ def lost_digits(sentence, fact):
     return list((collections.Counter(re.findall(r"\d+", sentence)) - have).elements())
 
 
-def section(ms, got):
-    """Odyn spysok "Vazhlyve" u poryadku prozvuchannya, z tajmkodamy - kozhne
-    chyslo mozhna pereviryty v zapysi. Pravyla j zavdannya ne rozdilyayut'sya
-    mitkamy: ce bulo rishennya 1.3 - zaranee prydumani kategoriyi prybrano.
-    Yakshcho formulyuvannya zahubylo chyslo z rechennya, do ryadka dodayet'sya
-    dosliva cytata: zahubyty movchky ne mozhna."""
+# --- склейка переказів -----------------------------------------------------
+# Той самий факт лектор повторює: "70 балів за лабораторні" о 00:44:12 і
+# "на лабораторні виділяється 70 балів" о 00:44:34. Розмічено 15 таких рядків
+# на трьох парах.
+#
+# Зміряно (2026-09-25) і саме тому правило тут одне й вузьке:
+#  * схожість формулювань дублі НЕ відділяє. Два різних потрібних рядки
+#    лекції 1 дають перекриття 1.00, а дублі опускаються до 0.33: межі немає.
+#    Причина - формулювання худі, і "той самий факт" часто вирішує те, що з
+#    формулювання зникло ("по знанню РТСУ", "його треба пройти").
+#  * правило "черга реплік" (сусідні кандидати впритул за часом) на
+#    математиці склеює правильно, а на лекції 1 склеїло 22 різних факти:
+#    там розділ щільний, і сусідні кандидати - різні правила. Відкинуто.
+# Лишилося те, що не шкодить: ті самі числа плюс схожі слова. Бере 1-2 дублі
+# з 15, шкоди 0. Решта - рішення про окремий прохід моделі, не код.
+_STOP = set("це цей ця той та як що ще вже там тут вам ви ми не і й а але бо за на у в з із "
+            "до по про від для при або чи так ну от тобто буде бути є має маєте можна "
+            "потрібно треба все свої".split())
+
+
+def _words(fact):
+    """Chotyry pervi litery znachushchykh sliv: hrubyj zaminnyk lematyzaciyi,
+    "laboratornykh" i "laboratorni" stayut' odnym."""
+    return {w[:4] for w in re.findall(r"[\w']+", fact.lower())
+            if len(w) >= 4 and w not in _STOP and not w.isdigit()}
+
+
+def _same_fact(a, b, jac_min=0.6):
+    """Ti sami chysla (abo v oboh zhodnoho) i schozhi slova. Ryadok, u yakomu
+    menshe tr'okh znachushchykh sliv, ne porivnyuyet'sya: "Bude dva testy" daye
+    odne slovo i skhozhyj na vse pro testy."""
+    if collections.Counter(re.findall(r"\d+", a)) != collections.Counter(re.findall(r"\d+", b)):
+        return False
+    wa, wb = _words(a), _words(b)
+    if len(wa) < 3 or len(wb) < 3:
+        return False
+    return len(wa & wb) / len(wa | wb) >= jac_min
+
+
+def section_rows(ms, got, merge=True):
+    """[{ids, ts, ts_end, fact, quote}] - ryadky rozdilu do vidmalyovky.
+    Okremo vid section(), shchob zamir tochnosti rakhuvav same ryadky, yaki
+    pobachyt' chytach: poky skorer rakhuvav kandydativ, sklejka bula jomu
+    nevydna, i chyslo ne zminylosya b vzahali."""
     rows = []
     for m in ms:
         g = got.get(m["id"])
         if not g or g["kind"] == "фон" or not g["fact"]:
             continue
-        row = f"- [{m['ts']}] {g['fact']}"
-        if lost_digits(m["text"], g["fact"]):
-            row += f" — дослівно: «{m['text']}»"
-        rows.append(row)
-    return "\n".join(rows) if rows else "немає"
+        rows.append({"ids": [m["id"]], "ts": m["ts"], "ts_end": m["ts"], "fact": g["fact"],
+                     "quote": m["text"] if lost_digits(m["text"], g["fact"]) else ""})
+    if not merge:
+        return rows
+    out = []
+    for r in rows:
+        for o in out:
+            if _same_fact(o["fact"], r["fact"]):
+                o["ids"] += r["ids"]
+                o["ts_end"] = r["ts"]
+                # Лишається повніше формулювання: більше чисел, потім довше.
+                if (len(re.findall(r"\d+", r["fact"])), len(r["fact"])) > \
+                   (len(re.findall(r"\d+", o["fact"])), len(o["fact"])):
+                    o["fact"], o["quote"] = r["fact"], r["quote"]
+                break
+        else:
+            out.append(r)
+    return out
+
+
+def section(ms, got, merge=True):
+    """Odyn spysok "Vazhlyve" u poryadku prozvuchannya, z tajmkodamy - kozhne
+    chyslo mozhna pereviryty v zapysi. Pravyla j zavdannya ne rozdilyayut'sya
+    mitkamy: ce bulo rishennya 1.3 - zaranee prydumani kategoriyi prybrano.
+    Yakshcho formulyuvannya zahubylo chyslo z rechennya, do ryadka dodayet'sya
+    dosliva cytata: zahubyty movchky ne mozhna."""
+    lines = []
+    for r in section_rows(ms, got, merge):
+        ts = r["ts"] if r["ts_end"] == r["ts"] else f"{r['ts']}–{r['ts_end']}"
+        line = f"- [{ts}] {r['fact']}"
+        if r["quote"]:
+            line += f" — дослівно: «{r['quote']}»"
+        lines.append(line)
+    return "\n".join(lines) if lines else "немає"

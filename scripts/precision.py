@@ -14,7 +14,10 @@ promptu, i v git ide bez imen - lyshe klyuch i mitka.
     python scripts/precision.py --sheet l1      # zrobyty arkush dlya rozmitky
     python scripts/precision.py                 # porakhuvaty tochnist'
 """
-import argparse, collections, csv, glob, hashlib, json, pathlib, re, time
+import argparse, collections, csv, glob, hashlib, json, pathlib, re, sys, time
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import protocol_numbers
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 LABELS = ROOT / "data" / "precision-labels.tsv"
@@ -135,14 +138,28 @@ def scoreboard(csv_path):
         files = sorted(glob.glob(str(ROOT / PAIRS[pair])))
         for p in files:
             items = json.load(open(p, encoding="utf-8"))["items"]
-            good = bad = dup = unknown = 0
-            for x in items:
-                if x.get("kind") in ("правило", "завдання") and x.get("fact"):
-                    m = labels.get((LABEL_OF[pair], key(x["ts"], x["text"])))
-                    good += m == "+"
-                    bad += m == "-"
-                    dup += m == "="
-                    unknown += m is None
+            # Рахуються РЯДКИ РОЗДІЛУ, а не кандидати: після склейки переказів
+            # один рядок покриває кілька речень, і поки скорер рахував речення,
+            # склейка була йому невидна - число не змінилося б узагалі.
+            got = {x["id"]: {"kind": x["kind"], "fact": x["fact"]}
+                   for x in items if "kind" in x}
+            ms = [{k: x[k] for k in ("id", "ts", "text", "prev")} for x in items]
+            by_id = {x["id"]: x for x in items}
+            good = bad = dup = unknown = mixed = 0
+            for r in protocol_numbers.section_rows(ms, got):
+                marks = {labels.get((LABEL_OF[pair], key(by_id[i]["ts"], by_id[i]["text"])))
+                         for i in r["ids"]}
+                # Рядок потрібен, якщо несе хоч один потрібний факт; дубль -
+                # якщо всі його речення лише повторюють сказане.
+                if None in marks and not (marks - {None}):
+                    unknown += 1
+                elif "+" in marks:
+                    good += 1
+                    mixed += "-" in marks      # склейка "потрібне + сміття": відмивання
+                elif "=" in marks:
+                    dup += 1
+                else:
+                    bad += 1
             total = good + bad + dup + unknown
             # Точність рахується лише по розміченому; нерозмічене видно окремо,
             # щоб нове формулювання не покращило число тишею. Дубль у числі
@@ -151,7 +168,7 @@ def scoreboard(csv_path):
             prec = round(good / known, 3) if known else ""
             out.append({"pair": pair, "seed": re.search(r"s(\d+)\.json$", p).group(1),
                         "rows": total, "needed": good, "junk": bad, "dup": dup,
-                        "unlabelled": unknown, "precision": prec})
+                        "unlabelled": unknown, "mixed": mixed, "precision": prec})
     with open(csv_path, "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=list(out[0]))
         w.writeheader()
@@ -159,7 +176,7 @@ def scoreboard(csv_path):
     for r in out:
         print(f"{r['pair']:5} s{r['seed']}  rows {r['rows']:3}  need {r['needed']:3}  "
               f"junk {r['junk']:3}  dup {r['dup']:3}  unlabelled {r['unlabelled']:3}  "
-              f"precision {r['precision']}")
+              f"precision {r['precision']}" + ("  ! mixed %d" % r['mixed'] if r['mixed'] else ""))
     if any(r["unlabelled"] for r in out):
         print("! є нерозмічені рядки - число неповне, зроби --sheet і розміть")
 
