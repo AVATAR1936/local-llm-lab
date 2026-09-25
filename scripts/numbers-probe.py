@@ -213,7 +213,9 @@ def main():
                 path.with_suffix(".json").write_text(json.dumps(
                     {"stats": st, "items": [{**m, **got.get(m["id"], {})} for m in ms]},
                     ensure_ascii=False, indent=1), encoding="utf-8")
-                print(f"  calls {st['calls']}  {st['seconds']:.1f}s  missing {st['missing_after']}", flush=True)
+                print(f"  calls {st['calls']}  {st['seconds']:.1f}s  "
+                      f"rules {st['n_rules']}/{st['n_num']}  tasks {st['n_tasks']}/{st['n_task']}  "
+                      f"missing {st['missing_after']}", flush=True)
             else:
                 r = ask(VARIANTS[args.variant] + transcript, seed, args.temperature, args.predict)
                 text = r["response"]
