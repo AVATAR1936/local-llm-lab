@@ -49,6 +49,22 @@ PAIRS = {
 # їх удруге означало б дозволити собі поставити іншу межу під результат.
 LABEL_OF = {k: re.sub(r"-org\d*$", "", k) for k in PAIRS}
 
+# Стенограми для розмітки по КАНДИДАТАХ (--cand). Чому не по рядках розділу:
+# рядки - це те, що модель видала, і правильно відкинутого в них немає взагалі.
+# Тому таку розмітку не можна ні перевикористати після правки промпта (нові
+# рядки щоразу нерозмічені), ні навчати на ній - вона закріплює саме поточні
+# ложні срабатывания. Мітка на кожному кандидаті від версії не залежить.
+TRANSCRIPTS = {
+    "l1":        "data/transcripts/lecture_long_65min.txt",
+    "l2":        "out/asr/whisper-large-v3+fb+vad-p260210.txt",
+    "math":      "out/asr/whisper-large-v3+fb+vad-p0206.txt",
+    "l3":        "out/asr/whisper-large-v3+fb+vad-p250205org.txt",
+    "ksi260904": "out/asr/whisper-large-v3+fb+vad-ksi260904.txt",
+    "prac2":     "out/asr/whisper-large-v3+fb+vad-prac2.txt",
+    "prac4":     "out/asr/whisper-large-v3+fb+vad-prac4.txt",
+}
+SAMPLE_SEED = 20260925        # той самий, що в жеребі поділу набору
+
 
 def key(ts, text):
     """Tajmkod i hesh rechennya. Hesh - vid normalizovanoho tekstu, shchob
@@ -117,9 +133,70 @@ def sheet(pair):
     print(f"{path}: {len(rs)} rows, {marked} already marked")
 
 
-def collect(pair):
+CAND_HEAD = """# Розмітка КАНДИДАТІВ — {pair}, {n} речень{note}, розмічено {marked}.
+#
+# Мітка — про РЕЧЕННЯ СТЕНОГРАМИ, не про рядок розділу. Поміть перший символ:
+#   +  вимога курсу або дія слухача: цьому місце в розділі «Важливе»
+#   -  фон: матеріал, приклади, обчислення, міркування про фах, справи викладача
+#   =  правда, але цей самий факт уже сказаний іншим кандидатом раніше
+# Порожньо = ще не розмічено, такі речення в число не йдуть.
+#
+# Ознака, за якою речення взяте в кандидати: ч - число, д - наказ або слово про
+# обов'язок чи строк, с - словник організаційного (третій критерій, пункт (б)).
+# «модель:» - як це речення сформулювала модель, якщо воно колись потрапляло в
+# розділ; це довідка, а не підказка: мітка ставиться по реченню, і саме тому
+# вона переживає будь-яку правку промпта.
+#
+# Формат: мітка | ключ | ознака | модель | || | речення | ← контекст
+"""
+
+
+def _model_facts(pair):
+    """{klyuch: formulyuvannya} z usikh armiv ciyeyi pary - lyshe yak dovidka."""
+    out = {}
+    for name, pat in PAIRS.items():
+        if LABEL_OF[name] != pair:
+            continue
+        for p in sorted(glob.glob(str(ROOT / pat))):
+            for x in json.load(open(p, encoding="utf-8"))["items"]:
+                if x.get("fact"):
+                    out.setdefault(key(x["ts"], x["text"]), x["fact"])
+    return out
+
+
+def sheet_cand(pair, sample=0):
+    """Arkush po vsikh kandydatakh pary: kozhne rechennya, yake vidbir kodu
+    viddaye modeli (chyslo, nakaz abo slovnyk), z mitkoyu, yaka vzhe stoyit'."""
+    import random
+    text = (ROOT / TRANSCRIPTS[pair]).read_text(encoding="utf-8")
+    ms = protocol_numbers.mentions(text, org=True)
+    note = ""
+    if sample and len(ms) > sample:
+        pick = random.Random(SAMPLE_SEED).sample(range(len(ms)), sample)
+        ms = [ms[i] for i in sorted(pick)]
+        note = f" (вибірка {sample} з жеребом {SAMPLE_SEED})"
+    old = {k: m for (p, k), m in load_labels().items() if p == pair}
+    facts = _model_facts(pair)
+    SHEETS.mkdir(parents=True, exist_ok=True)
+    path = SHEETS / f"{pair}.cand.txt"
+    lines, marked = [], 0
+    for m in ms:
+        k = key(m["ts"], m["text"])
+        marked += bool(old.get(k))
+        sign = ("ч" if m["num"] else "") + ("д" if m["task"] else "") + ("с" if m.get("orgw") else "")
+        lines.append(f"{old.get(k, '')}\t{k}\t{sign}\t{facts.get(k, '-')}\t||\t{m['text']}"
+                     f"\t← {m['prev'] or '-'}")
+    path.write_text(CAND_HEAD.format(pair=pair, n=len(ms), note=note, marked=marked)
+                    + "\n".join(lines) + "\n", encoding="utf-8")
+    by = collections.Counter(("ч" if m["num"] else "") + ("д" if m["task"] else "")
+                             + ("с" if m.get("orgw") else "") for m in ms)
+    print(f"{path}: {len(ms)} речень, розмічено {marked}, лишилось {len(ms) - marked}")
+    print("   за ознакою: " + ", ".join(f"{s or '?'} {c}" for s, c in sorted(by.items())))
+
+
+def collect(pair, cand=False):
     """Arkush -> data/precision-labels.tsv (lyshe klyuch i mitka, bez imen)."""
-    path = SHEETS / f"{pair}.txt"
+    path = SHEETS / (f"{pair}.cand.txt" if cand else f"{pair}.txt")
     got = {}
     for line in path.read_text(encoding="utf-8").splitlines():
         if not line.strip() or line.startswith("#"):
@@ -195,14 +272,21 @@ def scoreboard(csv_path):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--sheet", choices=list(PAIRS), help="зробити аркуш для розмітки")
-    ap.add_argument("--collect", choices=list(PAIRS), help="забрати мітки з аркуша в еталон")
+    ap.add_argument("--sheet", choices=list(PAIRS) + list(TRANSCRIPTS),
+                    help="зробити аркуш для розмітки")
+    ap.add_argument("--collect", choices=list(PAIRS) + list(TRANSCRIPTS),
+                    help="забрати мітки з аркуша в еталон")
+    ap.add_argument("--cand", action="store_true",
+                    help="аркуш по всіх кандидатах пари, а не по рядках розділу")
+    ap.add_argument("--sample", type=int, default=0,
+                    help="узяти лише N кандидатів жеребом (для математики: 503 цілком нащо)")
     ap.add_argument("--csv", default=str(ROOT / "results" / f"precision_{time.strftime('%Y-%m-%d')}.csv"))
     a = ap.parse_args()
     if a.sheet:
-        sheet(a.sheet)
+        sheet_cand(a.sheet, a.sample) if a.cand else sheet(a.sheet)
     elif a.collect:
-        save_labels({(LABEL_OF[a.collect], k): m for k, m in collect(a.collect).items()})
+        pair = LABEL_OF.get(a.collect, a.collect)
+        save_labels({(pair, k): m for k, m in collect(a.collect, a.cand).items()})
     else:
         scoreboard(a.csv)
 

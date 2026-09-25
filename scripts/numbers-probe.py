@@ -236,6 +236,8 @@ def main():
     ap.add_argument("--margin", type=int, default=0,
                     help="секунд захоплення за межею організаційного вікна (0 - умова, "
                          "на якій зміряно точність 0.44-0.58)")
+    ap.add_argument("--batch", type=int, default=0,
+                    help="речень на виклик; 0 - типове 120 (умова, на якій міряно)")
     args = ap.parse_args()
 
     global FACTS
@@ -254,6 +256,8 @@ def main():
         # Захоплення за межею - окрема умова, тому й окремі імена виводу:
         # прогін з margin не має затирати той, на якому зміряно 0.44-0.58.
         pre += "org__" if not args.margin else f"org{args.margin}__"
+    if args.batch:
+        pre += f"b{args.batch}__"
     OUT.mkdir(parents=True, exist_ok=True)
     transcript = src.read_text(encoding="utf-8")
     new = not pathlib.Path(args.csv).exists()
@@ -290,7 +294,7 @@ def main():
                               "cand_before": len(ms_all), "cand_after": len(ms)}
                     print(f"  org {len(org)}/{len(wins)} вікон, кандидатів "
                           f"{len(ms_all)} -> {len(ms)}", flush=True)
-                got, st = protocol_numbers.classify(ms, seed)
+                got, st = protocol_numbers.classify(ms, seed, batch=args.batch or None)
                 if org_st:
                     st["org"] = org_st
                 text = protocol_numbers.section(ms, got)

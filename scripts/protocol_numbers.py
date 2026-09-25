@@ -44,6 +44,18 @@ TASK = re.compile(r"(?<![\w'])(?:\w+(?:айте|яйте|уйте|юйте|ій�
                   r"обов'язков\w*|завчасно|заздалегідь|до\s+(?:понеділ|вівтор|серед|четвер|п'ятниц|субот|неділ|"
                   r"наступн|кінц)\w*)(?![\w'])", re.I)
 
+# Третій критерій відбору (пункт (б) плану): слова організаційної області.
+# Вимога буває без числа й без наказу - "у груп ФЄ це екзамен, а у ФБ залік",
+# "ставитиму автоматом": ні NUM, ні TASK її не бачать, і до моделі вона не
+# доїжджає взагалі. Це той самий словник, за яким перебір відрізняє
+# організаційну пару від предметної.
+# Типово вимкнений (mentions(org=False)): набір кандидатів - умова, на якій
+# зміряно і повноту, і точність, і зсувати її без окремого заміру не можна.
+ORGW = re.compile(r"(?<![\w'])(?:силабус\w*|сілабус\w*|форм\w*\s+контролю|практикум\w*|модульн\w*|"
+                  r"атестац\w*|залік\w*|екзамен\w*|автоматом|перездач\w*|звіт\w*|конспект\w*|"
+                  r"лаборатор\w*|реферат\w*|курсов\w*|класрум\w*|classroom|методичк\w*|"
+                  r"оформ\w*|формат\w*)(?![\w'])", re.I)
+
 
 def _norm_apos(t):
     return t.replace("’", "'").replace("ʼ", "'")
@@ -60,9 +72,12 @@ def within(ms, ranges):
     return [m for m in ms if any(a <= _secs(m["ts"]) < b for a, b in ranges)]
 
 
-def mentions(transcript):
+def mentions(transcript, org=False):
     """[{id, ts, text, prev}] - rechennya z chyslamy. Shapka fajlu (rядky z #)
-    - ne stenohrama: tam model' rozpiznavannya i chas obrobky."""
+    - ne stenohrama: tam model' rozpiznavannya i chas obrobky.
+
+    org=True dodaye tretij kryterij (ORGW): vymohy bez chysla j bez nakazu.
+    Typovo vyklyucheno - nabir kandydativ ce umova zamiru."""
     lines = [l for l in _norm_apos(transcript).splitlines() if l.strip() and not l.startswith("#")]
     sents = []           # (ts, sentence)
     ts = "00:00:00"
@@ -76,11 +91,11 @@ def mentions(transcript):
                     sents.append((ts, s.strip()))
     out = []
     for i, (ts, s) in enumerate(sents):
-        num, task = bool(NUM.search(s)), bool(TASK.search(s))
-        if num or task:
+        num, task, orgw = bool(NUM.search(s)), bool(TASK.search(s)), bool(ORGW.search(s))
+        if num or task or (org and orgw):
             out.append({"id": len(out) + 1, "ts": ts, "text": s,
                         "prev": sents[i - 1][1] if i else "",
-                        "num": num, "task": task})
+                        "num": num, "task": task, "orgw": orgw})
     return out
 
 
@@ -151,7 +166,7 @@ def _render(items, num):
                      for m in items)
 
 
-def _one_pass(items, prompt, seed, retries, stats):
+def _one_pass(items, prompt, seed, retries, stats, batch=None):
     """({id: fact}, [propushcheni id]). Fon ne zapysuyet'sya: rechennya, yake
     cej prokhid nazvav fonom, mozhe shche prydatysya drugomu prokhodu."""
     num = {m["id"]: i + 1 for i, m in enumerate(items)}
@@ -160,8 +175,8 @@ def _one_pass(items, prompt, seed, retries, stats):
     for _ in range(1 + retries):
         if not todo:
             break
-        for k in range(0, len(todo), BATCH):
-            part = todo[k:k + BATCH]
+        for k in range(0, len(todo), batch or BATCH):
+            part = todo[k:k + (batch or BATCH)]
             r = _ask(prompt + _render(part, num), seed)
             stats["calls"] += 1
             stats["out_tokens"] += r.get("eval_count", 0)
@@ -184,15 +199,15 @@ def _one_pass(items, prompt, seed, retries, stats):
     return got, [m["id"] for m in todo]
 
 
-def classify(ms, seed=42, retries=2):
+def classify(ms, seed=42, retries=2, batch=None):
     """{id: {kind, fact}} z dvokh prokhodiv. Rechennya, de ye i chyslo, i
     oznaka diyi, jde v oba; "pravylo" perevazhaye - joho formulyuvannya
     zmiryane, a "zavdannya" - shche ni."""
     stats = {"calls": 0, "out_tokens": 0, "seconds": 0.0, "truncated": 0}
     with_num = [m for m in ms if m.get("num")]
     with_task = [m for m in ms if m.get("task")]
-    rules, miss_r = _one_pass(with_num, RULES_PROMPT, seed, retries, stats)
-    tasks, miss_t = _one_pass(with_task, TASKS_PROMPT, seed, retries, stats)
+    rules, miss_r = _one_pass(with_num, RULES_PROMPT, seed, retries, stats, batch)
+    tasks, miss_t = _one_pass(with_task, TASKS_PROMPT, seed, retries, stats, batch)
     got = {}
     for m in ms:
         i = m["id"]
