@@ -31,6 +31,9 @@ PAIRS = {
     "l1-org":   "out/numbers/org__extract__t0.2__s*.json",
     "l2-org":   "out/numbers/l2__org__extract__t0.2__s*.json",
     "math-org": "out/numbers/math_2pass_org_s1.json",
+    # Третя пара з правилами, шару не знайома (знайдена перебором).
+    "l3":       "out/numbers/l3__extract__t0.2__s*.json",
+    "l3-org":   "out/numbers/l3__org__extract__t0.2__s*.json",
 }
 
 # Мітки спільні: вужчий прогін дає підмножину тих самих речень, і розмічати

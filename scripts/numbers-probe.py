@@ -22,6 +22,9 @@ OUT = ROOT / "out" / "numbers"
 # Друга лекція з правилами курсу - інший семестр, інший курс: перевірка, що
 # 23/23 на першій не підігнано під неї.
 TRANSCRIPT_2 = ROOT / "out" / "asr" / "whisper-large-v3+fb+vad-p260210.txt"
+# Третя - знайдена перебором, шару не знайома: єдина перевірка повноти на
+# даних, під які її не настроювали.
+TRANSCRIPT_3 = ROOT / "out" / "asr" / "whisper-large-v3+fb+vad-p250205org.txt"
 MODEL = "gemma4:12b"
 
 # Той самий промпт, що в раундах 0.6-0.8 (verify.ps1), дослівно.
@@ -126,6 +129,55 @@ FACTS_2 = {
 }
 
 
+# Третя пара з правилами курсу: 2025-02-05 10-57, 11.7 хв, інший курс і інший
+# лектор. Знайдена перебором (scan-pairs.py), шару вона не знайома - це єдине
+# місце, де повноту можна перевірити не на тих парах, під які її настроювали.
+#
+# Дві групи навмисно (рішення разом, 2026-09-25): H - бали, строки, допуски й
+# дії студента; S - вимоги до оформлення та здачі роботи. Читання стенограми
+# показало, що пропущене збирається саме в S: сказане без чисел, у діалозі зі
+# студентами, суттю в наступній реплиці. Одне спільне число злило б
+# "шар не переноситься" з "шар не бачить вимог без чисел".
+N1, N10, N25, N40, N75, N100 = (_n("1", "один", "одному"), _n("10", "десять", "десяти"),
+                                _n("25", "двадцять\\s+п'ять"), _n("40", "сорок"),
+                                _n("75", "сімдесят\\s+п'ять"), _n("100", "сто"))
+FACTS_3 = {
+    # Порядок слів вільний: модель пише і "100 балів", і "балів становить 100".
+    "H01_total_100":         N100 + r"\s*бал|бал\w*[^.\n]{0,30}" + N100,
+    "H02_labs_40":           N40 + r"[^.\n]{0,40}(?:бал|тест|лаб)|(?:бал|лаб)\w*[^.\n]{0,20}" + N40,
+    "H03_tests_2_by_5":      N2 + r"\s*тест\w*\s*по\s*" + N5 + "|тест\\w*[^.\\n]{0,20}по\\s*" + N5,
+    "H04_controls_2_by_25":  N2 + r"\s*контрольн\w*\s*по\s*" + N25 + "|контрольн\\w*[^.\\n]{0,20}" + N25,
+    "H05_penalty_1_a_week":  r"мінус\s*" + N1 + r"\s*бал|(?:тиждень|тижн\w*)[^.\n]{0,30}мінус",
+    "H06_bonus_up_to_10":    r"до\s*" + N10 + r"\s*заохочувальн|заохочувальн\w*[^.\n]{0,30}до\s*" + N10,
+    "H07_bonus_reasons":     r"олімпіад|методичн\w*\s*матеріал",
+    "H08_present_up_to_5":   r"до\s*" + N5 + r"\s*бал\w*[^.\n]{0,60}(?:презент|виступ|донест)"
+                             r"|(?:презент|виступ|донест)\w*[^.\n]{0,60}до\s*" + N5 + r"\s*бал",
+    "H09_activity_1_max_5":  r"по\s*" + N1 + r"\s*бал\w*[^.\n]{0,60}не\s*більше\s*" + N5
+                             + r"|не\s*більше\s*" + N5 + r"[^.\n]{0,40}семестр",
+    "H10_extra_task_prac4":  r"додаткове\s*завданн\w*[^.\n]{0,80}(?:четверт|" + N4 + r")"
+                             r"|(?:четверт|" + N4 + r")\w*[^.\n]{0,60}додаткове\s*завданн",
+    "H11_bonus_max_10pct":   N10 + r"\s*(?:відсотк|%)",
+    "H12_makeup_75pct":      N75 + r"\s*(?:відсотк|%)",
+    "H13_admit_5_labs":      N5 + r"\s*лабораторн",
+    "H14_admit_5_practicum": N5 + r"\s*комп'ютерн",
+    "H15_min_score_option":  r"мінімальн\w*\s*(?:бал|вимог)",
+    "H16_zoom_presence":     r"плюсик|(?:чат\w*|zoom)[^.\n]{0,40}присутн|присутн\w*[^.\n]{0,40}чат",
+    "H17_video_in_classroom": r"(?:лекці\w*|відео)[^.\n]{0,50}класрум|класрум[^.\n]{0,50}(?:лекці|відео)"
+                             r"|з'явил\w*[^.\n]{0,30}лекці|лекці\w*[^.\n]{0,30}з'явил",
+    "H18_lab2_two_sorts":    N2 + r"\s*метод\w*\s*сортуван|сортуван\w*[^.\n]{0,30}" + N2 + r"\s*метод",
+}
+FACTS_3_SOFT = {
+    "S01_title_page":        r"титульн",
+    "S02_topic_and_task":    r"тема\s*роботи|завданн\w*\s*обов'язков|обов'язков\w*[^.\n]{0,30}завданн",
+    "S03_screenshots":       r"скріншот",
+    "S04_min_formatting":    r"мінімум\s*на\s*оформлен|максимум\s*на\s*розумін",
+    "S05_any_environment":   r"юпітер|jupyter|ноутбук|будь\s*(?:де|в\s*як\w*)\s*середовищ|середовищ\w*\s*будь",
+    "S06_code_readable":     r"читабільн|копі(?:юв|йов|ров)\w*|скопіюва",
+    "S07_submit_classroom":  r"google\s*(?:class|документ)|класрум\w*[^.\n]{0,40}(?:скид|надсил)"
+                             r"|(?:скид|надсил)\w*[^.\n]{0,40}(?:класрум|google)",
+}
+
+
 def norm(t):
     t = t.lower().replace("’", "'").replace("ʼ", "'").replace("*", "")
     return re.sub(r"[ \t]+", " ", t)
@@ -174,7 +226,7 @@ def main():
     ap.add_argument("--predict", type=int, default=3000)
     ap.add_argument("--csv", default=str(ROOT / "results" / f"numbers_{time.strftime('%Y-%m-%d')}.csv"))
     ap.add_argument("--rescore", action="store_true", help="only rescore saved outputs")
-    ap.add_argument("--lecture", type=int, default=1, choices=[1, 2])
+    ap.add_argument("--lecture", type=int, default=1, choices=[1, 2, 3])
     ap.add_argument("--org", action="store_true",
                     help="шукати лише в організаційних вікнах пари (вікна + describe + org_windows)")
     args = ap.parse_args()
@@ -183,10 +235,13 @@ def main():
     src, pre = TRANSCRIPT, ""
     if args.lecture == 2:
         FACTS, src, pre = FACTS_2, TRANSCRIPT_2, "l2__"
+    elif args.lecture == 3:
+        # Дві групи в одному наборі: розділяються префіксом імені H/S при підсумку.
+        FACTS, src, pre = {**FACTS_3, **FACTS_3_SOFT}, TRANSCRIPT_3, "l3__"
+    if args.lecture != 1 and args.csv.endswith(f"numbers_{time.strftime('%Y-%m-%d')}.csv"):
+        args.csv = args.csv.replace("numbers_", f"numbers_l{args.lecture}_")
     if args.org:
         pre += "org__"
-        if args.csv.endswith(f"numbers_{time.strftime('%Y-%m-%d')}.csv"):
-            args.csv = args.csv.replace("numbers_", "numbers_l2_")
     OUT.mkdir(parents=True, exist_ok=True)
     transcript = src.read_text(encoding="utf-8")
     new = not pathlib.Path(args.csv).exists()
@@ -250,9 +305,16 @@ def main():
             w.writerow([args.variant, args.temperature, seed, "_foreign_count", len(foreign), len(foreign),
                         meta.get("out_tokens", ""), meta.get("tps", "")])
             f.flush()
+            # Групи H і S друкуються окремо: одне спільне число злило б
+            # "шар не переноситься" з "шар не бачить вимог без чисел".
+            groups = ""
+            for g in ("H", "S"):
+                keys = [k for k in sc if k.startswith(g)]
+                if keys:
+                    groups += f"  {g} {sum(sc[k][0] for k in keys)}/{len(keys)}"
             print(f"seed {seed}: section {sum(s for s, _ in sc.values())}/{len(FACTS)}  "
-                  f"doc {sum(d for _, d in sc.values())}/{len(FACTS)}  tokens {meta.get('out_tokens')}  "
-                  f"foreign {foreign}", flush=True)
+                  f"doc {sum(d for _, d in sc.values())}/{len(FACTS)}{groups}  "
+                  f"tokens {meta.get('out_tokens')}  foreign {foreign}", flush=True)
 
 
 if __name__ == "__main__":
