@@ -19,7 +19,7 @@ Chomu dva prokhody, a ne odyn (zamir 2026-09-25): odyn spil'nyj vopros
 "vazhlyve" nichoho ne vymiryaye, i model' vyrishuye zanovo kozhnoho razu.
 RULES_PROMPT tut - dosivno tej, shcho dav 23/23 i 12-13/14.
 """
-import collections, json, os, re, sys
+import collections, json, os, pathlib, re, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import llm
@@ -187,10 +187,23 @@ def _render(items, num):
                      for m in items)
 
 
-def _one_pass(items, prompt, seed, retries, stats, batch=None):
+# Katalog dlya vyhruzky promptiv. Yakshcho zadanyj - model' ne vyklykayet'sya
+# vzahali: verkhnya mezha mirayet'sya na TOMU SAMOMU teksti, shcho jde v gemma,
+# inakshe chysla nesporivnyanni.
+DUMP = None
+
+
+def _one_pass(items, prompt, seed, retries, stats, batch=None, tag="pass"):
     """({id: fact}, [propushcheni id]). Fon ne zapysuyet'sya: rechennya, yake
     cej prokhid nazvav fonom, mozhe shche prydatysya drugomu prokhodu."""
     num = {m["id"]: i + 1 for i, m in enumerate(items)}
+    if DUMP is not None:
+        step = batch or BATCH
+        for k in range(0, len(items), step):
+            part = items[k:k + step]
+            out = pathlib.Path(DUMP) / f"{tag}-{k // step + 1}.txt"
+            out.write_text(prompt + _render(part, num), encoding="utf-8")
+        return {}, []
     back = {v: k for k, v in num.items()}
     got, answered, todo = {}, set(), items
     for _ in range(1 + retries):
@@ -233,10 +246,10 @@ def classify(ms, seed=42, retries=2, batch=None):
     with_num = [m for m in ms if m.get("num")]
     with_task = [m for m in ms if m.get("task")]
     with_cond = [m for m in ms if m.get("orgw") and not m.get("num") and not m.get("task")]
-    rules, miss_r = _one_pass(with_num, RULES_PROMPT, seed, retries, stats, batch)
-    tasks, miss_t = _one_pass(with_task, TASKS_PROMPT, seed, retries, stats, batch)
+    rules, miss_r = _one_pass(with_num, RULES_PROMPT, seed, retries, stats, batch, "rules")
+    tasks, miss_t = _one_pass(with_task, TASKS_PROMPT, seed, retries, stats, batch, "tasks")
     conds, miss_c = ({}, []) if not with_cond else \
-        _one_pass(with_cond, COND_PROMPT, seed, retries, stats, batch)
+        _one_pass(with_cond, COND_PROMPT, seed, retries, stats, batch, "cond")
     got = {}
     for m in ms:
         i = m["id"]

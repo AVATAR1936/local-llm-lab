@@ -247,6 +247,8 @@ def main():
                          "на якій зміряно точність 0.44-0.58)")
     ap.add_argument("--orgw", action="store_true",
                     help="третій критерій відбору: словник організаційного (пункт (б))")
+    ap.add_argument("--dump-prompts", dest="dump",
+                    help="katalog: vyhruzyty prompty prokhodiv i vyjty, bez modeli")
     ap.add_argument("--batch", type=int, default=0,
                     help="речень на виклик; 0 - типове 120 (умова, на якій міряно)")
     args = ap.parse_args()
@@ -275,6 +277,22 @@ def main():
         pre += "w__"
     OUT.mkdir(parents=True, exist_ok=True)
     transcript = src.read_text(encoding="utf-8")
+    if args.dump:
+        # Verkhnya mezha konvejera: velyka model' otrymuye toj samyj tekst.
+        seed = args.seeds[0]
+        protocol_numbers.DUMP = pathlib.Path(args.dump)
+        protocol_numbers.DUMP.mkdir(parents=True, exist_ok=True)
+        ms = protocol_numbers.mentions(transcript, org=args.orgw)
+        before = len(ms)
+        if args.org:
+            wins = protocol_chapters.windows(transcript)
+            desc, _ = protocol_chapters.describe(wins, seed)
+            org, _ = protocol_chapters.org_windows(wins, desc, seed)
+            rng = protocol_chapters.org_ranges(wins, org, transcript, args.margin)
+            ms = protocol_numbers.within(ms, rng)
+        protocol_numbers.classify(ms, seed, batch=args.batch or None)
+        print(f"dump -> {args.dump}: candidates {before} -> {len(ms)}, seed {seed}")
+        return
     new = not pathlib.Path(args.csv).exists()
     with open(args.csv, "a", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
