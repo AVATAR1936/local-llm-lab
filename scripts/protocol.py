@@ -33,7 +33,7 @@ import llm, protocol_chapters as chapters, protocol_numbers as numbers
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 OUT = ROOT / "out" / "protocol"
 ASR_OUT = ROOT / "out" / "asr"
-ASR_NAME = "whisper-large-v3+fb+vad"      # завжди з --fallback --vad, див. CLAUDE.md
+ASR_NAME = "whisper-large-v3+fb+vad"      # завжди з --fallback --vad: без відкату петляє
 
 
 def transcribe(audio, tag):
